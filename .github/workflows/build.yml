@@ -32,15 +32,15 @@ jobs:
       with:
         submodules: "recursive"
         
-    - name: Setup release mode parameters (for deploy)
-      if: ${{ inputs.deploymode == 'release' }}
+    - name: "Setup release mode parameters (for deploy)"
+      if: ${{ inputs.deploymode == "release" }}
       run: |
         echo "BUILD_MODE=release" >> $GITHUB_ENV
         echo "BUILD_FLAGS=-DPUBLIC_RELEASE=ON" >> $GITHUB_ENV
         echo "Build mode is release"
 
-    - name: Setup debug mode parameters (for continous build)
-      if: ${{ inputs.deploymode != 'release' }}
+    - name: "Setup debug mode parameters (for continuous build)"
+      if: ${{ inputs.deploymode != "release" }}
       run: |
         echo "BUILD_MODE=debug" >> $GITHUB_ENV
         echo "BUILD_FLAGS=" >> $GITHUB_ENV
@@ -55,8 +55,8 @@ jobs:
       run: |
         bash ./dependencies/vcpkg/bootstrap-vcpkg.sh
         
-    - name: 'Setup NuGet Credentials for vcpkg'
-      shell: 'bash'
+    - name: "Setup NuGet Credentials for vcpkg"
+      shell: "bash"
       run: |
         mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
         sources add \
@@ -69,7 +69,7 @@ jobs:
         setapikey "${{ secrets.GITHUB_TOKEN }}" \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
         
-    - name: "cmake"
+    - name: "Run cmake"
       run: |
         mkdir -p build
         cd build
@@ -80,9 +80,9 @@ jobs:
         cd build
         ninja
         
-    - name: Upload artifact
+    - name: "Upload artifact"
       uses: actions/upload-artifact@v3
-      if: ${{ inputs.deploymode == 'release' }}
+      if: ${{ inputs.deploymode == "release" }}
       with:
         name: cemu-bin-linux-x64
         path: ./bin/Cemu
@@ -96,22 +96,22 @@ jobs:
       with:
         submodules: "recursive"
         
-    - name: Setup release mode parameters (for deploy)
-      if: ${{ inputs.deploymode == 'release' }}
+    - name: "Setup release mode parameters (for deploy)"
+      if: ${{ inputs.deploymode == "release" }}
       run: |
         echo "BUILD_MODE=release" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "BUILD_FLAGS=-DPUBLIC_RELEASE=ON" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "Build mode is release"
         
-    - name: Setup debug mode parameters (for continous build)
-      if: ${{ inputs.deploymode != 'release' }}
+    - name: "Setup debug mode parameters (for continuous build)"
+      if: ${{ inputs.deploymode != "release" }}
       run: |
         echo "BUILD_MODE=debug" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "BUILD_FLAGS=" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "Build mode is debug"
         
     
-    - name: Workaround
+    - name: "MSVC Workaround"
       run: |
         Set-Location "C:\Program Files (x86)\Microsoft Visual Studio\Installer\"
         $InstallPath = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
@@ -141,7 +141,7 @@ jobs:
         $process = Start-Process -FilePath cmd.exe -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
         $process = Start-Process -FilePath cmd.exe -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
 
-    - name: Configure MSVC
+    - name: "Configure MSVC"
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: amd64
@@ -152,8 +152,8 @@ jobs:
       run: |
         ./dependencies/vcpkg/bootstrap-vcpkg.bat
         
-    - name: 'Setup NuGet Credentials for vcpkg'
-      shell: 'bash'
+    - name: "Setup NuGet Credentials for vcpkg"
+      shell: "bash"
       run: |
         `./dependencies/vcpkg/vcpkg.exe fetch nuget | tail -n 1` \
         sources add \
@@ -166,7 +166,7 @@ jobs:
         setapikey "${{ secrets.GITHUB_TOKEN }}" \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
         
-    - name: "cmake"
+    - name: "Run cmake"
       run: |
         mkdir -p build
         cd build
@@ -177,9 +177,9 @@ jobs:
         cd build
         cmake --build . --config ${{ env.BUILD_MODE }} -j 2
         
-    - name: Upload artifact
+    - name: "Upload artifact"
       uses: actions/upload-artifact@v3
-      if: ${{ inputs.deploymode == 'release' }}
+      if: ${{ inputs.deploymode == "release" }}
       with:
         name: cemu-bin-windows-x64
         path: ./bin/Cemu.exe
