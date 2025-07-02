@@ -40,6 +40,7 @@ void CemuConfig::Load(XMLConfigParser& parser)
 	check_update = parser.get("check_update", check_update);
 	receive_untested_updates = parser.get("receive_untested_updates", receive_untested_updates);
 	save_screenshot = parser.get("save_screenshot", save_screenshot);
+	msw_theme = parser.get("msw_theme", msw_theme);
 	did_show_vulkan_warning = parser.get("vk_warning", did_show_vulkan_warning);
 	did_show_graphic_pack_download = parser.get("gp_download", did_show_graphic_pack_download);
 	did_show_macos_disclaimer = parser.get("macos_disclaimer", did_show_macos_disclaimer);
@@ -370,9 +371,10 @@ void CemuConfig::Save(XMLConfigParser& parser)
 	config.set("mlc_path", mlc_path.GetValue().c_str());
 	config.set<bool>("permanent_storage", permanent_storage);
 	config.set<sint32>("language", language);
+	config.set<sint32>("msw_theme", msw_theme);
 	config.set<bool>("use_discord_presence", use_discord_presence);
 	config.set<bool>("fullscreen_menubar", fullscreen_menubar);
-    	config.set<bool>("feral_gamemode", feral_gamemode);
+	config.set<bool>("feral_gamemode", feral_gamemode);
 	config.set<bool>("check_update", check_update);
 	config.set<bool>("receive_untested_updates", receive_untested_updates);
 	config.set<bool>("save_screenshot", save_screenshot);

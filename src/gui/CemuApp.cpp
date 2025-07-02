@@ -274,6 +274,17 @@ bool CemuApp::OnInit()
 		LocalizeUI(static_cast<wxLanguage>(wxLocale::GetSystemLanguage()));
 	}
 
+#if __WXMSW__
+	if (g_config.data().msw_theme.GetValue() == static_cast<int>(MSWThemeOption::kAuto))
+	{
+		MSWEnableDarkMode(DarkMode_Auto);
+	}
+	else if (g_config.data().msw_theme.GetValue() == static_cast<int>(MSWThemeOption::kDark))
+	{
+		MSWEnableDarkMode(DarkMode_Always);
+	}
+#endif
+
 	for (auto&& path : failedWriteAccess)
 	{
 		wxMessageBox(formatWxString(_("Cemu can't write to {}!"), wxString::FromUTF8(_pathToUtf8(path))),

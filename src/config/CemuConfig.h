@@ -97,6 +97,14 @@ enum FullscreenScaling
 	kStretch,
 };
 
+enum class MSWThemeOption : int
+{
+	kAuto = 0,
+	kLight = 1,
+	kDark = 2,
+};
+ENABLE_ENUM_ITERATORS(MSWThemeOption, MSWThemeOption::kAuto, MSWThemeOption::kDark);
+
 enum class ScreenPosition
 {
 	kDisabled = 0,
@@ -417,6 +425,8 @@ struct CemuConfig
 	ConfigValue<bool> check_update{true};
 	ConfigValue<bool> receive_untested_updates{false};
 	ConfigValue<bool> save_screenshot{true};
+
+	ConfigValue<int> msw_theme { static_cast<int>(MSWThemeOption::kAuto) };
 
 	ConfigValue<bool> did_show_vulkan_warning{false};
 	ConfigValue<bool> did_show_graphic_pack_download{false}; // no longer used but we keep the config value around in case people downgrade Cemu. Despite the name this was used for the Getting Started dialog
