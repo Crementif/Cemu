@@ -1,6 +1,7 @@
 #include "gui/wxgui.h"
 #include "gui/debugger/DisasmCtrl.h"
 
+#include "wxHelper.h"
 #include "Cafe/OS/RPL/rpl_structs.h"
 #include "Cafe/OS/RPL/rpl.h"
 #include "Cafe/OS/RPL/rpl_symbol_storage.h"
@@ -13,7 +14,6 @@
 
 #include "Cemu/ExpressionParser/ExpressionParser.h"
 #include "Cafe/HW/Espresso/Debugger/DebugSymbolStorage.h"
-#include <wx/mstream.h> // for wxMemoryInputStream
 
 wxDEFINE_EVENT(wxEVT_DISASMCTRL_NOTIFY_GOTO_ADDRESS, wxCommandEvent);
 
@@ -106,7 +106,7 @@ static void InitSyntaxColors()
 
 	// theme the current instruction pointer arrow
 	wxMemoryInputStream strm(arrowRightPNG, sizeof(arrowRightPNG));
-	g_ipArrowBitmap = LoadThemedBitmapFromPNG(arrowRightPNG, sizeof(arrowRightPNG), wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+	g_ipArrowBitmap = wxHelper::LoadThemedBitmapFromPNG(arrowRightPNG, sizeof(arrowRightPNG), wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
 }
 
 
