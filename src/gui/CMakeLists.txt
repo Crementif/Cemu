@@ -107,8 +107,6 @@ add_library(CemuGui
   windows/TextureRelationViewer
   windows/TextureRelationViewer/TextureRelationWindow.cpp
   windows/TextureRelationViewer/TextureRelationWindow.h
-  wxcomponents/checkedlistctrl.cpp
-  wxcomponents/checkedlistctrl.h
   wxcomponents/checktree.cpp
   wxcomponents/checktree.h
   wxgui.h
