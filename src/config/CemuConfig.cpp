@@ -155,6 +155,7 @@ XMLConfigParser CemuConfig::Load(XMLConfigParser& parser)
 		overlay.text_color = overlay_node.get("TextColor", 0xFFFFFFFF);
 		overlay.text_scale = overlay_node.get("TextScale", 100);
 		overlay.fps = overlay_node.get("FPS", true);
+		overlay.fps_advanced = overlay_node.get("FPSAdvanced", false);
 		overlay.drawcalls = overlay_node.get("DrawCalls", false);
 		overlay.cpu_usage = overlay_node.get("CPUUsage", false);
 		overlay.cpu_per_core_usage = overlay_node.get("CPUPerCoreUsage", false);
@@ -383,6 +384,7 @@ XMLConfigParser CemuConfig::Save(XMLConfigParser& parser)
 	overlay_node.set("TextColor", overlay.text_color);
 	overlay_node.set("TextScale", overlay.text_scale);
 	overlay_node.set("FPS", overlay.fps);
+	overlay_node.set("FPSAdvanced", overlay.fps_advanced);
 	overlay_node.set("DrawCalls", overlay.drawcalls);
 	overlay_node.set("CPUUsage", overlay.cpu_usage);
 	overlay_node.set("CPUPerCoreUsage", overlay.cpu_per_core_usage);

@@ -24,6 +24,8 @@ struct OverlayStats
 	std::vector<ProcessorTime> processor_times;
 
 	double fps{};
+	double fps_98percentile{};
+	double fps_10s_avg{};
 	uint32 draw_calls_per_frame{};
 	uint32 fast_draw_calls_per_frame{};
 	float cpu_usage{}; // cemu cpu usage in %
@@ -76,7 +78,7 @@ void LatteOverlay_renderOverlay(ImVec2& position, ImVec2& pivot, sint32 directio
 	const ImVec4 color = ImGui::ColorConvertU32ToFloat4(config.overlay.text_color);
 	ImGui::PushStyleColor(ImGuiCol_Text, color);
 	// stats overlay
-	if (config.overlay.fps || config.overlay.drawcalls || config.overlay.cpu_usage || config.overlay.cpu_per_core_usage || config.overlay.ram_usage)
+	if (config.overlay.fps || config.overlay.fps_advanced || config.overlay.drawcalls || config.overlay.cpu_usage || config.overlay.cpu_per_core_usage || config.overlay.ram_usage)
 	{
 		ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
 		ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
@@ -84,6 +86,12 @@ void LatteOverlay_renderOverlay(ImVec2& position, ImVec2& pivot, sint32 directio
 		{
 			if (config.overlay.fps)
 				ImGui::Text("FPS: %.2lf", g_state.fps);
+
+			if (config.overlay.fps_advanced)
+			{
+				ImGui::Text("98%%: %.2lf", g_state.fps_98percentile);
+				ImGui::Text("10s: %.2lf", g_state.fps_10s_avg);
+			}
 
 			if (config.overlay.drawcalls)
 				ImGui::Text("Draws/f: %d (fast: %d)", g_state.draw_calls_per_frame, g_state.fast_draw_calls_per_frame);
@@ -600,6 +608,8 @@ void LatteOverlay_updateStats(double fps, sint32 drawcalls, sint32 fastDrawcalls
 		return;
 
 	g_state.fps = fps;
+	g_state.fps_98percentile = performanceMonitor.advanced.fps98percentile;
+	g_state.fps_10s_avg = performanceMonitor.advanced.fps10sAvg;
 	g_state.draw_calls_per_frame = drawcalls;
 	g_state.fast_draw_calls_per_frame = fastDrawcalls;
 	UpdateStats_CemuCpu();

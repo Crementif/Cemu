@@ -758,6 +758,10 @@ wxPanel* GeneralSettings2::AddOverlayPage(wxNotebook* notebook)
 			m_overlay_fps->SetToolTip(_("The number of frames per second. Average over last 5 seconds"));
 			settings2_row->Add(m_overlay_fps, 0, wxALL, 5);
 
+			m_overlay_fps_advanced = new wxCheckBox(box, wxID_ANY, _("FPS (advanced)"));
+			m_overlay_fps_advanced->SetToolTip(_("Shows 98th percentile and 10 second average FPS"));
+			settings2_row->Add(m_overlay_fps_advanced, 0, wxALL, 5);
+
 			m_overlay_drawcalls = new wxCheckBox(box, wxID_ANY, _("Draw calls per frame"));
 			m_overlay_drawcalls->SetToolTip(_("The number of draw calls per frame. Average over last 5 seconds"));
 			settings2_row->Add(m_overlay_drawcalls, 0, wxALL, 5);
@@ -1276,6 +1280,7 @@ void GeneralSettings2::StoreConfig()
 	config.overlay.text_scale = m_overlay_scale->GetSelection() * 25 + 50;
 
 	config.overlay.fps = m_overlay_fps->GetValue();
+	config.overlay.fps_advanced = m_overlay_fps_advanced->GetValue();
 	config.overlay.drawcalls = m_overlay_drawcalls->GetValue();
 	config.overlay.cpu_usage = m_overlay_cpu->GetValue();
 	config.overlay.cpu_per_core_usage = m_overlay_cpu_per_core->GetValue();
@@ -1934,6 +1939,7 @@ void GeneralSettings2::ApplyConfig()
 	m_overlay_scale->SetSelection(selection);
 
 	m_overlay_fps->SetValue(config.overlay.fps);
+	m_overlay_fps_advanced->SetValue(config.overlay.fps_advanced);
 	m_overlay_drawcalls->SetValue(config.overlay.drawcalls);
 	m_overlay_cpu->SetValue(config.overlay.cpu_usage);
 	m_overlay_cpu_per_core->SetValue(config.overlay.cpu_per_core_usage);

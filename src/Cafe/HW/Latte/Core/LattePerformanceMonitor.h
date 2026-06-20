@@ -1,6 +1,7 @@
 #pragma once
 
 #define PERFORMANCE_MONITOR_TRACK_CYCLES	(5) // one cycle lasts one second
+#define ADVANCED_FRAMETIME_BUFFER_SIZE	(2048)
 
 // todo - replace PPCTimer with HighResolutionTimer.h
 uint64 PPCTimer_getRawTsc();
@@ -71,6 +72,8 @@ private:
 	std::atomic_uint32_t m_value{};
 };
 
+struct FpsHistoryEntry { uint32 frames; uint32 elapsedMs; };
+
 typedef struct
 {
 	struct
@@ -132,6 +135,22 @@ typedef struct
 		LattePerfStatCounter numDrawBarriersPerFrame;
 		LattePerfStatCounter numBeginRenderpassPerFrame;
 	}vk;
+
+	// advanced FPS tracking
+	struct
+	{
+		double frameTimes[ADVANCED_FRAMETIME_BUFFER_SIZE];
+		uint32 writeIndex;
+		uint32 count;
+		uint64 lastTsc;
+
+		FpsHistoryEntry history[10];
+		uint32 historyWriteIndex;
+		uint32 historyCount;
+
+		double fps98percentile;
+		double fps10sAvg;
+	} advanced;
 
 	// calculated stats (per frame)
 	struct
