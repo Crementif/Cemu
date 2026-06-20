@@ -583,6 +583,11 @@ VKRObjectDescriptorSet* VulkanRenderer::surfaceCopy_getOrCreateDescriptorSet(VkC
 
 void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint32 texSrcMip, sint32 texSrcSlice, LatteTextureVk* dstTextureVk, sint32 texDstMip, sint32 texDstSlice, sint32 effectiveCopyWidth, sint32 effectiveCopyHeight)
 {
+	const bool enableDebugLabels = this->IsDebugMarkersEnabled();
+	VkApiTimerSnapshot vkBefore;
+	if (enableDebugLabels)
+		vkBefore = VkApiProfiler_SnapshotAndReset();
+
 	const uint64 totalStart = PPCTimer_getRawTsc();
 	draw_endRenderPass();
 
@@ -701,16 +706,25 @@ void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint3
 	// restore viewport and scissor box
 	vkCmdSetViewport(m_state.currentCommandBuffer, 0, 1, &m_state.currentViewport);
 	vkCmdSetScissor(m_state.currentCommandBuffer, 0, 1, &m_state.currentScissorRect);
-	if (this->IsDebugMarkersEnabled() && LatteDebug_GetCurrentTraceSummary())
+	if (enableDebugLabels && LatteDebug_GetCurrentTraceSummary())
 	{
-		auto copyLabel = fmt::format("surface-copy cpu={}us srcMip={} srcSlice={} dstMip={} dstSlice={} size={}x{}",
-			(uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart),
+		VkApiTimerSnapshot vkAfter = VkApiProfiler_Snapshot();
+		VkApiTimerSnapshot vkDelta = VkApiProfiler_Delta(vkBefore, vkAfter);
+		char vkBuf[256];
+		VkApiProfiler_FormatToLabel(vkDelta, vkBuf, sizeof(vkBuf));
+
+		uint64 totalCycles = PPCTimer_getRawTsc() - totalStart;
+		auto copyLabel = fmt::format("surface-copy cpu={}us(+{}us) srcMip={} srcSlice={} dstMip={} dstSlice={} size={}x{}",
+			LatteDebug_AccumulateAndGetCpuTimeUs(totalCycles),
+			(uint32)PPCTimer_tscToMicroseconds(totalCycles),
 			texSrcMip,
 			texSrcSlice,
 			texDstMip,
 			texDstSlice,
 			effectiveCopyWidth,
 			effectiveCopyHeight);
+		if (vkBuf[0] != '\0')
+			copyLabel += fmt::format(" vk[{}]", vkBuf);
 		copyLabel = debug_makeLabelWithCurrentTrace(copyLabel);
 		debug_insertCmdLabel(copyLabel.c_str(), kCopyLabelColor);
 	}

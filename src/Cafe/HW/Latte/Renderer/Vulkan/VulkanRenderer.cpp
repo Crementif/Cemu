@@ -737,6 +737,7 @@ VulkanRenderer::VulkanRenderer()
 	if (this->IsDebugMarkersEnabled())
 		cemuLog_log(LogType::Force, "Debug: Detected tool capable of using Vulkan debug markers, will tag Vulkan objects and command buffer events");
 	LatteDebug_EnableGpuMarkers(this->IsDebugMarkersEnabled());
+	VkApiProfiler_Enable(this->IsDebugMarkersEnabled());
 
 	// set initial viewport and scissor box size
 	m_state.currentViewport.width = 4;
@@ -809,6 +810,7 @@ VulkanRenderer::VulkanRenderer()
 VulkanRenderer::~VulkanRenderer()
 {
 	LatteDebug_EnableGpuMarkers(false);
+	VkApiProfiler_Enable(false);
 	SubmitCommandBuffer();
 	WaitDeviceIdle();
 	WaitCommandBufferFinished(GetCurrentCommandBufferId());
@@ -3068,6 +3070,7 @@ void VulkanBenchmarkPrintResults();
 
 void VulkanRenderer::SwapBuffers(bool swapTV, bool swapDRC)
 {
+	LatteDebug_ResetCumulativeCpuTime();
 	SubmitCommandBuffer();
 
 	if (swapTV && IsSwapchainInfoValid(true))
@@ -3464,6 +3467,11 @@ void VulkanRenderer::texture_clearSlice(LatteTexture* hostTexture, sint32 sliceI
 
 void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 sliceIndex, sint32 mipIndex, float r, float g, float b, float a)
 {
+	const bool enableDebugLabels = this->IsDebugMarkersEnabled();
+	VkApiTimerSnapshot vkBefore;
+	if (enableDebugLabels)
+		vkBefore = VkApiProfiler_SnapshotAndReset();
+
 	const uint64 totalStart = PPCTimer_getRawTsc();
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 	if(vkTexture->dim == Latte::E_DIM::DIM_3D)
@@ -3471,9 +3479,19 @@ void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 s
 		cemu_assert_unimplemented();
 	}
 	ClearColorImage(vkTexture, sliceIndex, mipIndex, {r, g, b, a}, VK_IMAGE_LAYOUT_GENERAL);
-	if (this->IsDebugMarkersEnabled() && LatteDebug_GetCurrentTraceSummary())
+	if (enableDebugLabels && LatteDebug_GetCurrentTraceSummary())
 	{
-		auto clearLabel = fmt::format("clear-color cpu={}us slice={} mip={}", (uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart), sliceIndex, mipIndex);
+		VkApiTimerSnapshot vkAfter = VkApiProfiler_Snapshot();
+		VkApiTimerSnapshot vkDelta = VkApiProfiler_Delta(vkBefore, vkAfter);
+		char vkBuf[256];
+		VkApiProfiler_FormatToLabel(vkDelta, vkBuf, sizeof(vkBuf));
+
+		uint64 totalCycles = PPCTimer_getRawTsc() - totalStart;
+		auto clearLabel = fmt::format("clear-color cpu={}us(+{}us) slice={} mip={}",
+			LatteDebug_AccumulateAndGetCpuTimeUs(totalCycles),
+			(uint32)PPCTimer_tscToMicroseconds(totalCycles), sliceIndex, mipIndex);
+		if (vkBuf[0] != '\0')
+			clearLabel += fmt::format(" vk[{}]", vkBuf);
 		clearLabel = debug_makeLabelWithCurrentTrace(clearLabel);
 		debug_insertCmdLabel(clearLabel.c_str(), kClearLabelColor);
 	}
@@ -3481,6 +3499,11 @@ void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 s
 
 void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 sliceIndex, sint32 mipIndex, bool clearDepth, bool clearStencil, float depthValue, uint32 stencilValue)
 {
+	const bool enableDebugLabels = this->IsDebugMarkersEnabled();
+	VkApiTimerSnapshot vkBefore;
+	if (enableDebugLabels)
+		vkBefore = VkApiProfiler_SnapshotAndReset();
+
 	const uint64 totalStart = PPCTimer_getRawTsc();
 	draw_endRenderPass(); // vkCmdClearDepthStencilImage must not be inside renderpass
 
@@ -3519,14 +3542,23 @@ void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 s
 	vkCmdClearDepthStencilImage(m_state.currentCommandBuffer, imageObj->m_image, VK_IMAGE_LAYOUT_GENERAL, &depthStencilValue, 1, &range);
 
 	barrier_image<ANY_TRANSFER, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkTexture, subresourceRange, VK_IMAGE_LAYOUT_GENERAL);
-	if (this->IsDebugMarkersEnabled() && LatteDebug_GetCurrentTraceSummary())
+	if (enableDebugLabels && LatteDebug_GetCurrentTraceSummary())
 	{
-		auto clearLabel = fmt::format("clear-depth cpu={}us slice={} mip={} depth={} stencil={}",
-			(uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart),
+		VkApiTimerSnapshot vkAfter = VkApiProfiler_Snapshot();
+		VkApiTimerSnapshot vkDelta = VkApiProfiler_Delta(vkBefore, vkAfter);
+		char vkBuf[256];
+		VkApiProfiler_FormatToLabel(vkDelta, vkBuf, sizeof(vkBuf));
+
+		uint64 totalCycles = PPCTimer_getRawTsc() - totalStart;
+		auto clearLabel = fmt::format("clear-depth cpu={}us(+{}us) slice={} mip={} depth={} stencil={}",
+			LatteDebug_AccumulateAndGetCpuTimeUs(totalCycles),
+			(uint32)PPCTimer_tscToMicroseconds(totalCycles),
 			sliceIndex,
 			mipIndex,
 			clearDepth ? 1 : 0,
 			clearStencil ? 1 : 0);
+		if (vkBuf[0] != '\0')
+			clearLabel += fmt::format(" vk[{}]", vkBuf);
 		clearLabel = debug_makeLabelWithCurrentTrace(clearLabel);
 		debug_insertCmdLabel(clearLabel.c_str(), kClearLabelColor);
 	}

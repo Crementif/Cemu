@@ -3,6 +3,8 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #include <numeric> // for std::iota
 
+#include "Cafe/HW/Latte/Core/LatteDebugInstrumentation.h"
+
 #if BOOST_OS_LINUX || BOOST_OS_MACOS || BOOST_OS_BSD
 #include <dlfcn.h>
 #endif
@@ -10,6 +12,77 @@
 #define VULKAN_API_CPU_BENCHMARK 0	// if 1, Cemu will log the CPU time spent per Vulkan API function
 
 bool g_vulkan_available = false;
+
+static VkApiCategory GetVkApiCategory(const char* funcName)
+{
+	static const std::unordered_map<std::string, VkApiCategory> map = {
+		{"vkCmdDraw",                    VkApiCategory::Draw},
+		{"vkCmdDrawIndexed",             VkApiCategory::Draw},
+		{"vkCmdClearColorImage",         VkApiCategory::ClearImage},
+		{"vkCmdClearDepthStencilImage",  VkApiCategory::ClearImage},
+		{"vkCmdClearAttachments",        VkApiCategory::ClearImage},
+		{"vkCmdBindPipeline",            VkApiCategory::BindPipeline},
+		{"vkCmdBindDescriptorSets",      VkApiCategory::BindDescriptorSets},
+		{"vkCmdBindVertexBuffers",       VkApiCategory::BindVertexBuffers},
+		{"vkCmdBindIndexBuffer",         VkApiCategory::BindIndexBuffer},
+		{"vkCmdPipelineBarrier",         VkApiCategory::PipelineBarrier},
+		{"vkCmdPipelineBarrier2KHR",     VkApiCategory::PipelineBarrier},
+		{"vkCmdBeginRenderPass",         VkApiCategory::BeginRenderPass},
+		{"vkCmdEndRenderPass",           VkApiCategory::EndRenderPass},
+		{"vkCmdBeginRenderingKHR",       VkApiCategory::BeginRenderPass},
+		{"vkCmdEndRenderingKHR",         VkApiCategory::EndRenderPass},
+		{"vkCmdSetViewport",             VkApiCategory::SetState},
+		{"vkCmdSetScissor",              VkApiCategory::SetState},
+		{"vkCmdSetBlendConstants",       VkApiCategory::SetState},
+		{"vkCmdSetDepthBias",            VkApiCategory::SetState},
+		{"vkCmdPushConstants",           VkApiCategory::PushConstants},
+		{"vkCmdCopyBuffer",              VkApiCategory::CopyBufferImage},
+		{"vkCmdCopyImage",               VkApiCategory::CopyBufferImage},
+		{"vkCmdCopyBufferToImage",       VkApiCategory::CopyBufferImage},
+		{"vkCmdCopyImageToBuffer",       VkApiCategory::CopyBufferImage},
+		{"vkCmdBlitImage",               VkApiCategory::CopyBufferImage},
+	};
+	auto it = map.find(funcName);
+	if (it != map.end())
+		return it->second;
+	return VkApiCategory::Other;
+}
+
+template<uint32 Id, typename TRet, typename... Args>
+auto VkWrapperDebugProfiler(TRet (*func)(Args...), VkApiCategory category)
+{
+	static auto _OrigFunc = func;
+	static VkApiCategory _Category = category;
+
+	TRet (*newFunc)(Args...);
+	if constexpr (std::is_void_v<TRet>)
+	{
+		newFunc = +[](Args... args) {
+			if (!VkApiProfiler_IsEnabled())
+			{
+				_OrigFunc(args...);
+				return;
+			}
+			uint64 start = PPCTimer_getRawTsc();
+			_OrigFunc(args...);
+			uint64 elapsed = PPCTimer_getRawTsc() - start;
+			VkApiProfiler_RecordCall(_Category, elapsed);
+		};
+	}
+	else
+	{
+		newFunc = +[](Args... args) -> TRet {
+			if (!VkApiProfiler_IsEnabled())
+				return _OrigFunc(args...);
+			uint64 start = PPCTimer_getRawTsc();
+			TRet r = _OrigFunc(args...);
+			uint64 elapsed = PPCTimer_getRawTsc() - start;
+			VkApiProfiler_RecordCall(_Category, elapsed);
+			return r;
+		};
+	}
+	return newFunc;
+}
 
 #if VULKAN_API_CPU_BENCHMARK != 0
 uint64 s_vulkanBenchmarkLastResultsTime = 0;
@@ -131,6 +204,11 @@ bool InitializeDeviceVulkan(VkDevice device)
 	#include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #endif
 
+	// install lightweight profiling wrappers on all device functions
+	// (wrappers check a runtime flag; near-zero cost when profiling is off)
+	#define VKFUNC_DEVICE_INIT_PROFILER
+	#include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
+
 	return true;
 }
 
@@ -199,6 +277,9 @@ bool InitializeDeviceVulkan(VkDevice device)
 	#define VKFUNC_DEFINE_CUSTOM(__func) __func = VkWrapperFuncGenTest(__func, #__func)
 	#include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #endif
+
+	#define VKFUNC_DEVICE_INIT_PROFILER
+	#include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 
 	return true;
 }

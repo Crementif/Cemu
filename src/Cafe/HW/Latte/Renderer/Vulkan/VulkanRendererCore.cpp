@@ -1353,6 +1353,10 @@ void VulkanRenderer::draw_execute(uint32 baseVertex, uint32 baseInstance, uint32
 	uint64 mrtCycles = 0;
 	uint64 apiCycles = 0;
 
+	VkApiTimerSnapshot vkBefore;
+	if (enableDebugLabels)
+		vkBefore = VkApiProfiler_SnapshotAndReset();
+
 	// prepare streamout
 	{
 		ScopedCpuTimer timer(vertexCycles, &performanceMonitor.gpuTime_dcStageVertexMgr);
@@ -1578,9 +1582,16 @@ void VulkanRenderer::draw_execute(uint32 baseVertex, uint32 baseInstance, uint32
 
 	if (enableDebugLabels)
 	{
-		auto drawLabel = fmt::format("draw #{} cpu={}us vertex={}us shader={}us index={}us mrt={}us api={}us",
+		VkApiTimerSnapshot vkAfter = VkApiProfiler_Snapshot();
+		VkApiTimerSnapshot vkDelta = VkApiProfiler_Delta(vkBefore, vkAfter);
+		char vkBuf[256];
+		VkApiProfiler_FormatToLabel(vkDelta, vkBuf, sizeof(vkBuf));
+
+		uint64 totalCycles = PPCTimer_getRawTsc() - totalStart;
+		auto drawLabel = fmt::format("draw #{} cpu={}us(+{}us) vertex={}us shader={}us index={}us mrt={}us api={}us",
 			drawIndex,
-			(uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart),
+			LatteDebug_AccumulateAndGetCpuTimeUs(totalCycles),
+			(uint32)PPCTimer_tscToMicroseconds(totalCycles),
 			(uint32)PPCTimer_tscToMicroseconds(vertexCycles),
 			(uint32)PPCTimer_tscToMicroseconds(shaderCycles),
 			(uint32)PPCTimer_tscToMicroseconds(indexCycles),
@@ -1594,6 +1605,8 @@ void VulkanRenderer::draw_execute(uint32 baseVertex, uint32 baseInstance, uint32
 				m_debugDrawSequenceInfo.textureSetupUs,
 				m_debugDrawSequenceInfo.mrtSetupUs);
 		}
+		if (vkBuf[0] != '\0')
+			drawLabel += fmt::format(" vk[{}]", vkBuf);
 		drawLabel = debug_makeLabelWithCurrentTrace(drawLabel);
 		debug_insertCmdLabel(drawLabel.c_str(), kDrawLabelColor);
 	}

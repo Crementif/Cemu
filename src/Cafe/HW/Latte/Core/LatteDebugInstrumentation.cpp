@@ -315,3 +315,135 @@ const std::vector<uint32>* LatteDebug_GetDisplayListTags(uint32 physAddr)
 		return nullptr;
 	return &it->second;
 }
+
+// ---- VkApiProfiler ----
+
+namespace
+{
+	std::array<std::atomic_uint64_t, kVkApiCategoryCount> s_vkApiCounters{};
+	std::atomic_bool s_vkApiProfilingEnabled{ false };
+}
+
+void VkApiProfiler_Enable(bool enabled)
+{
+	s_vkApiProfilingEnabled.store(enabled, std::memory_order_relaxed);
+	if (!enabled)
+	{
+		for (uint32 i = 0; i < kVkApiCategoryCount; i++)
+			s_vkApiCounters[i].store(0, std::memory_order_relaxed);
+	}
+}
+
+bool VkApiProfiler_IsEnabled()
+{
+	return s_vkApiProfilingEnabled.load(std::memory_order_relaxed);
+}
+
+void VkApiProfiler_RecordCall(VkApiCategory category, uint64 cycles)
+{
+	if (!s_vkApiProfilingEnabled.load(std::memory_order_relaxed))
+		return;
+	uint32 idx = static_cast<uint32>(category);
+	if (idx < kVkApiCategoryCount)
+		s_vkApiCounters[idx].fetch_add(cycles, std::memory_order_relaxed);
+}
+
+VkApiTimerSnapshot VkApiProfiler_Snapshot()
+{
+	VkApiTimerSnapshot snap;
+	for (uint32 i = 0; i < kVkApiCategoryCount; i++)
+		snap.counters[i] = s_vkApiCounters[i].load(std::memory_order_relaxed);
+	return snap;
+}
+
+VkApiTimerSnapshot VkApiProfiler_SnapshotAndReset()
+{
+	VkApiTimerSnapshot snap;
+	for (uint32 i = 0; i < kVkApiCategoryCount; i++)
+		snap.counters[i] = s_vkApiCounters[i].exchange(0, std::memory_order_relaxed);
+	return snap;
+}
+
+VkApiTimerSnapshot VkApiProfiler_Delta(const VkApiTimerSnapshot& before, const VkApiTimerSnapshot& after)
+{
+	VkApiTimerSnapshot delta;
+	for (uint32 i = 0; i < kVkApiCategoryCount; i++)
+	{
+		delta.counters[i] = (after.counters[i] >= before.counters[i])
+			? (after.counters[i] - before.counters[i])
+			: 0;
+	}
+	return delta;
+}
+
+const char* VkApiProfiler_FormatToLabel(const VkApiTimerSnapshot& snapshot, char* buf, size_t bufSize)
+{
+	static constexpr struct
+	{
+		VkApiCategory cat;
+		const char* shortName;
+	} kCatNames[] = {
+		{ VkApiCategory::Draw,               "draw"    },
+		{ VkApiCategory::BindPipeline,       "bind"    },
+		{ VkApiCategory::BindDescriptorSets, "desc"    },
+		{ VkApiCategory::BindVertexBuffers,  "vb"      },
+		{ VkApiCategory::BindIndexBuffer,    "ib"      },
+		{ VkApiCategory::PipelineBarrier,    "barrier" },
+		{ VkApiCategory::BeginRenderPass,    "begPass" },
+		{ VkApiCategory::EndRenderPass,      "endPass" },
+		{ VkApiCategory::ClearImage,         "clear"   },
+		{ VkApiCategory::SetState,           "state"   },
+		{ VkApiCategory::PushConstants,      "push"    },
+		{ VkApiCategory::CopyBufferImage,    "copy"    },
+		{ VkApiCategory::Other,              "other"   },
+	};
+
+	char* cursor = buf;
+	size_t remaining = bufSize;
+
+	bool first = true;
+	for (const auto& entry : kCatNames)
+	{
+		uint64 cycles = snapshot.GetCyclesForCat(entry.cat);
+		if (cycles == 0)
+			continue;
+
+		uint64 us = (uint64)PPCTimer_tscToMicroseconds(cycles);
+		int written;
+		if (first)
+		{
+			written = snprintf(cursor, remaining, "%s=%lluus", entry.shortName, (unsigned long long)us);
+			first = false;
+		}
+		else
+		{
+			written = snprintf(cursor, remaining, " %s=%lluus", entry.shortName, (unsigned long long)us);
+		}
+
+		if (written <= 0)
+			continue;
+
+		size_t consumed = (size_t)written;
+		if (consumed >= remaining)
+			consumed = remaining - 1;
+		cursor += consumed;
+		remaining -= consumed;
+		if (remaining <= 1)
+			break;
+	}
+
+	return buf;
+}
+
+uint64 s_cumulativeCpuCycles{ 0 };
+
+uint64 LatteDebug_AccumulateAndGetCpuTimeUs(uint64 cycles)
+{
+	s_cumulativeCpuCycles += cycles;
+	return (uint64)PPCTimer_tscToMicroseconds(s_cumulativeCpuCycles);
+}
+
+void LatteDebug_ResetCumulativeCpuTime()
+{
+	s_cumulativeCpuCycles = 0;
+}

@@ -39,6 +39,10 @@ extern bool g_vulkan_available;
 		#define VKFUNC(__FUNC__) 
 		#define VKFUNC_INSTANCE(__FUNC__)
 		#define VKFUNC_DEVICE(__FUNC__) __FUNC__ = (PFN_##__FUNC__)vkGetDeviceProcAddr(device, #__FUNC__)
+	#elif defined(VKFUNC_DEVICE_INIT_PROFILER)
+		#define VKFUNC(__FUNC__)
+		#define VKFUNC_INSTANCE(__FUNC__)
+		#define VKFUNC_DEVICE(__FUNC__) __FUNC__ = VkWrapperDebugProfiler<__COUNTER__>(__FUNC__, GetVkApiCategory(#__FUNC__))
 	#else
 		#define VKFUNC(__FUNC__) extern PFN_##__FUNC__ __FUNC__
 		#define VKFUNC_INSTANCE(__FUNC__) extern PFN_##__FUNC__ __FUNC__
@@ -242,6 +246,7 @@ VKFUNC_DEVICE(vkDestroyDescriptorSetLayout);
 #undef VKFUNC_INIT
 #undef VKFUNC_INSTANCE_INIT
 #undef VKFUNC_DEVICE_INIT
+#undef VKFUNC_DEVICE_INIT_PROFILER
 #undef VKFUNC_DEFINE
 
 #undef VKFUNC
