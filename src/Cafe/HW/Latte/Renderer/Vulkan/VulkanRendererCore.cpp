@@ -11,6 +11,7 @@
 #include "Cafe/OS/libs/gx2/GX2.h"
 #include "imgui/imgui_impl_vulkan.h"
 #include "Cafe/GameProfile/GameProfile.h"
+#include "config/ActiveSettings.h"
 #include "util/helpers/helpers.h"
 
 extern bool hasValidFramebufferAttached;
@@ -1164,7 +1165,7 @@ void VulkanRenderer::draw_setRenderPass()
 	auto vkObjRenderPass = fboVk->GetRenderPassObj();
 	auto vkObjFramebuffer = fboVk->GetFramebufferObj();
 
-	bool overridePassReuse = m_state.hasRenderSelfDependency && (GetConfig().vk_accurate_barriers || m_state.activePipelineInfo->neverSkipAccurateBarrier);
+	bool overridePassReuse = m_state.hasRenderSelfDependency && (ActiveSettings::AccurateBarriersEnabled() || m_state.activePipelineInfo->neverSkipAccurateBarrier);
 
 	if (!overridePassReuse && m_state.activeRenderpassFBO == fboVk)
 	{

@@ -101,6 +101,14 @@ bool ActiveSettings::RenderUpsideDownEnabled()
 	return LaunchSettings::RenderUpsideDownEnabled().value_or(GetConfig().render_upside_down);
 }
 
+bool ActiveSettings::AccurateBarriersEnabled()
+{
+	auto cliDisable = LaunchSettings::AccurateBarriersDisabled();
+	if (cliDisable.has_value())
+		return !cliDisable.value();
+	return GetConfig().vk_accurate_barriers;
+}
+
 bool ActiveSettings::WaitForGX2DrawDoneEnabled()
 {
 	return GetConfig().gx2drawdone_sync;

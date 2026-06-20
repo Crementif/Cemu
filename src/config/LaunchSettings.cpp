@@ -73,7 +73,8 @@ bool LaunchSettings::HandleCommandline(const std::vector<std::wstring>& args)
 
 		("force-interpreter", po::value<bool>()->implicit_value(true), "Force interpreter CPU emulation, disables recompiler. Useful for debugging purposes where you want to get accurate memory accesses and stack traces.")
 		("force-multicore-interpreter", po::value<bool>()->implicit_value(true), "Force multi-core interpreter CPU emulation, disables recompiler. Only useful for getting stack traces, but slightly faster than the single-core interpreter mode.")
-		("enable-gdbstub", po::value<bool>()->implicit_value(true), "Enable GDB stub to debug executables inside Cemu using an external debugger");
+		("enable-gdbstub", po::value<bool>()->implicit_value(true), "Enable GDB stub to debug executables inside Cemu using an external debugger")
+		("disable-accurate-barriers", po::value<bool>()->implicit_value(true), "Disable accurate Vulkan pipeline barriers");
 
 	po::options_description hidden{ "Hidden options" };
 	hidden.add_options()
@@ -188,6 +189,9 @@ bool LaunchSettings::HandleCommandline(const std::vector<std::wstring>& args)
 		
 		if (vm.count("enable-gdbstub"))
 			s_enable_gdbstub = vm["enable-gdbstub"].as<bool>();
+
+		if (vm.count("disable-accurate-barriers"))
+			s_disable_accurate_barriers = vm["disable-accurate-barriers"].as<bool>();
 
 		std::wstring extract_path, log_path;
 		std::string output_path;

@@ -248,7 +248,7 @@ void InfoLog_PrintActiveSettings()
 	if (ActiveSettings::GetGraphicsAPI() == GraphicAPI::kVulkan)
 	{
 		cemuLog_log(LogType::Force, "Async compile: {}", GetConfig().async_compile.GetValue() ? "true" : "false");
-		if (!GetConfig().vk_accurate_barriers.GetValue())
+		if (!ActiveSettings::AccurateBarriersEnabled())
 			cemuLog_log(LogType::Force, "Accurate barriers are disabled!");
 	}
 #ifdef ENABLE_METAL
@@ -259,7 +259,7 @@ void InfoLog_PrintActiveSettings()
 		cemuLog_log(LogType::Force, "Fast math: {}", g_current_game_profile->GetShaderFastMath() ? "true" : "false");
 		cemuLog_log(LogType::Force, "Buffer cache type: {}", g_current_game_profile->GetBufferCacheMode());
 		cemuLog_log(LogType::Force, "Position invariance: {}", g_current_game_profile->GetPositionInvariance());
-		if (!GetConfig().vk_accurate_barriers.GetValue())
+		if (!ActiveSettings::AccurateBarriersEnabled())
 			cemuLog_log(LogType::Force, "Accurate barriers are disabled!");
 	}
 #endif

@@ -91,6 +91,7 @@ public:
 	// gpu
 	[[nodiscard]] static PrecompiledShaderOption GetPrecompiledShadersOption();
 	[[nodiscard]] static bool RenderUpsideDownEnabled();
+	[[nodiscard]] static bool AccurateBarriersEnabled();
 	[[nodiscard]] static bool WaitForGX2DrawDoneEnabled();
 	[[nodiscard]] static GraphicAPI GetGraphicsAPI();
 

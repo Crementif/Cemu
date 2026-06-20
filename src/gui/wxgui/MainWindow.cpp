@@ -2349,7 +2349,9 @@ void MainWindow::RecreateMenu()
 		upsidedownItem->Enable(false);
 
 	auto accurateBarriers = debugMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_VK_ACCURATE_BARRIERS, _("&Accurate barriers (Vulkan)"));
-	accurateBarriers->Check(GetConfig().vk_accurate_barriers);
+	accurateBarriers->Check(ActiveSettings::AccurateBarriersEnabled());
+	if(LaunchSettings::AccurateBarriersDisabled().has_value())
+		accurateBarriers->Enable(false);
 
 #ifdef ENABLE_METAL
 	auto gpuCapture = debugMenu->Append(MAINFRAME_MENU_ID_DEBUG_GPU_CAPTURE, _("&GPU capture (Metal)"));

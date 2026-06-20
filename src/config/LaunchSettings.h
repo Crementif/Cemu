@@ -26,6 +26,7 @@ public:
 
 	static bool GDBStubEnabled() { return s_enable_gdbstub; }
 	static bool NSightModeEnabled() { return s_nsight_mode; }
+	static std::optional<bool> AccurateBarriersDisabled() { return s_disable_accurate_barriers; }
 
 	static bool ForceInterpreter() { return s_force_interpreter; };
 	static bool ForceMultiCoreInterpreter() { return s_force_multicore_interpreter; }
@@ -47,10 +48,11 @@ private:
 	
 	inline static bool s_enable_gdbstub = false;
 	inline static bool s_nsight_mode = false;
+	inline static std::optional<bool> s_disable_accurate_barriers{};
 
 	inline static bool s_force_interpreter = false;
 	inline static bool s_force_multicore_interpreter = false;
-	
+
 	inline static std::optional<uint32> s_persistent_id{};
 
 	// for recompiler debugging
