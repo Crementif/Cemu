@@ -1,5 +1,7 @@
 #include "Cafe/HW/Latte/Core/Latte.h"
+#include "Cafe/HW/Latte/Core/LatteDebugInstrumentation.h"
 #include "Cafe/HW/Latte/Core/LatteDraw.h"
+#include "Cafe/HW/Espresso/PPCState.h"
 #include "Cafe/OS/common/OSCommon.h"
 #include "Cafe/HW/Latte/Core/LattePM4.h"
 #include "Cafe/OS/libs/coreinit/coreinit.h"
@@ -20,31 +22,79 @@ namespace GX2
 void gx2WriteGather_submitU32AsBE(uint32 v)
 {
 	uint32 coreIndex = PPCInterpreter_getCoreIndex(PPCInterpreter_getCurrentInstance());
-	if (GX2::s_perCoreCBState[coreIndex].currentWritePtr == nullptr)
+	auto& coreCBState = GX2::s_perCoreCBState[coreIndex];
+	if (coreCBState.currentWritePtr == nullptr)
 		return;
-	*(uint32*)(GX2::s_perCoreCBState[coreIndex].currentWritePtr) = _swapEndianU32(v);
-	GX2::s_perCoreCBState[coreIndex].currentWritePtr++;
-	cemu_assert_debug(GX2::s_perCoreCBState[coreIndex].currentWritePtr <= (GX2::s_perCoreCBState[coreIndex].bufferPtr + GX2::s_perCoreCBState[coreIndex].bufferSizeInU32s));
+	if (coreCBState.currentWritePtr >= (coreCBState.bufferPtr + coreCBState.bufferSizeInU32s))
+	{
+		cemu_assert_suspicious();
+		return;
+	}
+	*(uint32*)(coreCBState.currentWritePtr) = _swapEndianU32(v);
+	coreCBState.currentWritePtr++;
+	cemu_assert_debug(coreCBState.currentWritePtr <= (coreCBState.bufferPtr + coreCBState.bufferSizeInU32s));
 }
 
 void gx2WriteGather_submitU32AsLE(uint32 v)
 {
 	uint32 coreIndex = PPCInterpreter_getCoreIndex(PPCInterpreter_getCurrentInstance());
-	if (GX2::s_perCoreCBState[coreIndex].currentWritePtr == nullptr)
+	auto& coreCBState = GX2::s_perCoreCBState[coreIndex];
+	if (coreCBState.currentWritePtr == nullptr)
 		return;
-	*(uint32*)(GX2::s_perCoreCBState[coreIndex].currentWritePtr) = v;
-	GX2::s_perCoreCBState[coreIndex].currentWritePtr++;
-	cemu_assert_debug(GX2::s_perCoreCBState[coreIndex].currentWritePtr <= (GX2::s_perCoreCBState[coreIndex].bufferPtr + GX2::s_perCoreCBState[coreIndex].bufferSizeInU32s));
+	if (coreCBState.currentWritePtr >= (coreCBState.bufferPtr + coreCBState.bufferSizeInU32s))
+	{
+		cemu_assert_suspicious();
+		return;
+	}
+	*(uint32*)(coreCBState.currentWritePtr) = v;
+	coreCBState.currentWritePtr++;
+	cemu_assert_debug(coreCBState.currentWritePtr <= (coreCBState.bufferPtr + coreCBState.bufferSizeInU32s));
 }
 
 void gx2WriteGather_submitU32AsLEArray(uint32* v, uint32 numValues)
 {
 	uint32 coreIndex = PPCInterpreter_getCoreIndex(PPCInterpreter_getCurrentInstance());
-	if (GX2::s_perCoreCBState[coreIndex].currentWritePtr == nullptr)
+	auto& coreCBState = GX2::s_perCoreCBState[coreIndex];
+	if (coreCBState.currentWritePtr == nullptr)
 		return;
-	memcpy_dwords(GX2::s_perCoreCBState[coreIndex].currentWritePtr, v, numValues);
-	GX2::s_perCoreCBState[coreIndex].currentWritePtr += numValues;
-	cemu_assert_debug(GX2::s_perCoreCBState[coreIndex].currentWritePtr <= (GX2::s_perCoreCBState[coreIndex].bufferPtr + GX2::s_perCoreCBState[coreIndex].bufferSizeInU32s));
+	if ((coreCBState.currentWritePtr + numValues) > (coreCBState.bufferPtr + coreCBState.bufferSizeInU32s))
+	{
+		cemu_assert_suspicious();
+		return;
+	}
+	memcpy_dwords(coreCBState.currentWritePtr, v, numValues);
+	coreCBState.currentWritePtr += numValues;
+	cemu_assert_debug(coreCBState.currentWritePtr <= (coreCBState.bufferPtr + coreCBState.bufferSizeInU32s));
+}
+
+void gx2WriteGather_submitDebugTag()
+{
+	if (!LatteDebug_AreGpuMarkersEnabled())
+		return;
+
+	PPCInterpreter_t* hCPU = PPCInterpreter_getCurrentInstance();
+	if (!hCPU)
+		return;
+	uint32 coreIndex = PPCInterpreter_getCoreIndex(hCPU);
+	auto& coreCBState = GX2::s_perCoreCBState[coreIndex];
+	uint64 traceHash = LatteDebug_CalculateTraceHash(hCPU);
+	if (coreCBState.hasDebugTraceHash && coreCBState.lastDebugTraceHash == traceHash)
+		return;
+
+	uint32 traceTag = LatteDebug_CreateTraceTag(hCPU);
+	if (traceTag == 0)
+		return;
+	coreCBState.hasDebugTraceHash = true;
+	coreCBState.lastDebugTraceHash = traceHash;
+
+	if (coreCBState.isDisplayList)
+	{
+		coreCBState.debugTraceTags.push_back(traceTag);
+		return;
+	}
+
+	gx2WriteGather_submitU32AsBE(pm4HeaderType3(IT_HLE_DEBUG_SOURCE, 1));
+	gx2WriteGather_submitU32AsBE(traceTag);
 }
 
 namespace GX2
@@ -94,6 +144,9 @@ namespace GX2
 			s_perCoreCBState[i].bufferPtr = nullptr;
 			s_perCoreCBState[i].bufferSizeInU32s = 0;
 			s_perCoreCBState[i].currentWritePtr = nullptr;
+			s_perCoreCBState[i].isDisplayList = false;
+			s_perCoreCBState[i].hasDebugTraceHash = false;
+			s_perCoreCBState[i].lastDebugTraceHash = 0;
 		}
 		// start first command buffer for main core
 		GX2Command_StartNewCommandBuffer(0x100);
@@ -140,6 +193,8 @@ namespace GX2
 		coreCBState.bufferSizeInU32s = sizeInU32s;
 		coreCBState.currentWritePtr = buffer;
 		coreCBState.isDisplayList = isDisplayList;
+		coreCBState.hasDebugTraceHash = false;
+		coreCBState.lastDebugTraceHash = 0;
 	}
 
 	void GX2Command_StartNewCommandBuffer(uint32 numU32s)
@@ -349,6 +404,7 @@ namespace GX2
 			s_mainCoreLastCommandState = s_perCoreCBState[coreIndex];
 		}
 		GX2Command_SetupCoreCommandBuffer(MEMPTR<uint32be>(buffer), maxSize/4, true);
+		s_perCoreCBState[coreIndex].debugTraceTags.clear();
 	}
 
 	uint32 GX2WriteGather_getDisplayListWriteDistance(sint32 coreIndex)
@@ -367,6 +423,13 @@ namespace GX2
 		GX2Command_PadCurrentBuffer();
 		uint32 finalWriteIndex = coreCBState.currentWritePtr - coreCBState.bufferPtr;
 		cemu_assert_debug(finalWriteIndex <= coreCBState.bufferSizeInU32s);
+		if (!coreCBState.debugTraceTags.empty())
+		{
+			uint32 physAddr = memory_virtualToPhysical(buffer);
+			std::vector<uint32> tags;
+			coreCBState.debugTraceTags.swap(tags);
+			LatteDebug_RegisterDisplayListTags(physAddr, std::move(tags));
+		}
 		// if we are on the main GX2 core then restore the GPU command buffer
 		if (coreIndex == sGX2MainCoreIndex)
 		{
@@ -423,7 +486,10 @@ namespace GX2
 	{
 		cemu_assert_debug((size&3) == 0);
 		// write PM4 command
-		GX2ReserveCmdSpace(4);
+		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+		GX2ReserveCmdSpace(4 + debugTagWords);
+		if (debugTagWords != 0)
+			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(pm4HeaderType3(IT_INDIRECT_BUFFER_PRIV, 3),
 			memory_virtualToPhysical(addr),
 			0, // high address bits

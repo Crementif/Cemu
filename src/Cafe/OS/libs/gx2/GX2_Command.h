@@ -1,6 +1,7 @@
 #pragma once
 #include "Cafe/HW/Latte/ISA/LatteReg.h"
 #include "Cafe/HW/Espresso/Const.h"
+#include "Cafe/HW/Latte/Core/LatteDebugInstrumentation.h"
 
 namespace GX2
 {
@@ -10,6 +11,9 @@ namespace GX2
 		uint32 bufferSizeInU32s;
 		uint32be* currentWritePtr;
 		bool isDisplayList;
+		bool hasDebugTraceHash;
+		uint64 lastDebugTraceHash;
+		std::vector<uint32> debugTraceTags;
 	};
 
 	extern GX2PerCoreCBState s_perCoreCBState[Espresso::CORE_COUNT];
@@ -18,6 +22,17 @@ namespace GX2
 void gx2WriteGather_submitU32AsBE(uint32 v);
 void gx2WriteGather_submitU32AsLE(uint32 v);
 void gx2WriteGather_submitU32AsLEArray(uint32* v, uint32 numValues);
+void gx2WriteGather_submitDebugTag();
+
+inline uint32 gx2WriteGather_getDebugTagWordCount()
+{
+    if (!LatteDebug_AreGpuMarkersEnabled())
+        return 0;
+    uint32 coreIndex = PPCInterpreter_getCurrentCoreIndex();
+    if (GX2::s_perCoreCBState[coreIndex].isDisplayList)
+        return 0;
+    return 2u;
+}
 
 uint32 PPCInterpreter_getCurrentCoreIndex();
 

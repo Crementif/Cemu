@@ -289,7 +289,10 @@ void GX2CopySurfaceInternal(GX2Surface* srcSurface, uint32 srcMip, uint32 srcSli
 	// copy via GPU commands
 	// for simplicity and performance Cemu uses a HLE command to handle surface copies,
 	// a more accurate implementation would setup actual drawcalls to copy the texture data
-	GX2::GX2ReserveCmdSpace(23);
+	const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+	GX2::GX2ReserveCmdSpace(23 + debugTagWords);
+	if (debugTagWords != 0)
+		gx2WriteGather_submitDebugTag();
 	gx2WriteGather_submit(pm4HeaderType3(IT_HLE_COPY_SURFACE_NEW, 4+9*2),
 	// copy rect
 	(uint32)0, // x

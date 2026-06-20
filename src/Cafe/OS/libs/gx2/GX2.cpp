@@ -92,7 +92,10 @@ void gx2Export_GX2SwapScanBuffers(PPCInterpreter_t* hCPU)
 void gx2Export_GX2CopyColorBufferToScanBuffer(PPCInterpreter_t* hCPU)
 {
 	cemuLog_log(LogType::GX2, "GX2CopyColorBufferToScanBuffer(0x{:08x},{})", hCPU->gpr[3], hCPU->gpr[4]);
-	GX2::GX2ReserveCmdSpace(10);
+	const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+	GX2::GX2ReserveCmdSpace(10 + debugTagWords);
+	if (debugTagWords != 0)
+		gx2WriteGather_submitDebugTag();
 
 	// todo: proper implementation
 

@@ -1,6 +1,8 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 
+#include "Cafe/HW/Latte/Core/LatteDebugInstrumentation.h"
+
 struct CopyShaderPushConstantData_t
 {
 	float vertexOffsets[4 * 2];
@@ -581,6 +583,7 @@ VKRObjectDescriptorSet* VulkanRenderer::surfaceCopy_getOrCreateDescriptorSet(VkC
 
 void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint32 texSrcMip, sint32 texSrcSlice, LatteTextureVk* dstTextureVk, sint32 texDstMip, sint32 texDstSlice, sint32 effectiveCopyWidth, sint32 effectiveCopyHeight)
 {
+	const uint64 totalStart = PPCTimer_getRawTsc();
 	draw_endRenderPass();
 
 	//debug_printf("surfaceCopy_viaDrawcall Src %04d %04d Dst %04d %04d CopySize %04d %04d\n", srcTextureVk->width, srcTextureVk->height, dstTextureVk->width, dstTextureVk->height, effectiveCopyWidth, effectiveCopyHeight);
@@ -698,6 +701,19 @@ void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint3
 	// restore viewport and scissor box
 	vkCmdSetViewport(m_state.currentCommandBuffer, 0, 1, &m_state.currentViewport);
 	vkCmdSetScissor(m_state.currentCommandBuffer, 0, 1, &m_state.currentScissorRect);
+	if (this->IsDebugMarkersEnabled() && LatteDebug_GetCurrentTraceSummary())
+	{
+		auto copyLabel = fmt::format("surface-copy cpu={}us srcMip={} srcSlice={} dstMip={} dstSlice={} size={}x{}",
+			(uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart),
+			texSrcMip,
+			texSrcSlice,
+			texDstMip,
+			texDstSlice,
+			effectiveCopyWidth,
+			effectiveCopyHeight);
+		copyLabel = debug_makeLabelWithCurrentTrace(copyLabel);
+		debug_insertCmdLabel(copyLabel.c_str(), kCopyLabelColor);
+	}
 
 	LatteTexture_TrackTextureGPUWrite(dstTextureVk, texDstSlice, texDstMip, LatteTexture_getNextUpdateEventCounter());
 }

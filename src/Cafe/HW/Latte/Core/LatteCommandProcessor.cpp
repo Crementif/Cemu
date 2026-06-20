@@ -4,6 +4,7 @@
 #include "Cafe/OS/libs/gx2/GX2_Event.h" // for notification callbacks
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
+#include "Cafe/HW/Latte/Core/LatteDebugInstrumentation.h"
 #include "Cafe/HW/Latte/Core/LatteDraw.h"
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LatteAsyncCommands.h"
@@ -61,6 +62,8 @@ public:
 
 	void executeDraw(uint32 count, bool isAutoIndex, MPTR physIndices)
 	{
+		if (m_displayListTags && m_displayListTagIndex < m_displayListTags->size())
+			LatteDebug_SetCurrentTraceTag((*m_displayListTags)[m_displayListTagIndex++]);
 		uint32 baseVertex = LatteGPUState.contextRegister[mmSQ_VTX_BASE_VTX_LOC];
 		uint32 baseInstance = LatteGPUState.contextRegister[mmSQ_VTX_START_INST_LOC];
 		uint32 numInstances = LatteGPUState.contextNew.VGT_DMA_NUM_INSTANCES.get_NUM_INSTANCES();
@@ -119,12 +122,20 @@ public:
 		return true;
 	}
 
+	void setDisplayListTags(const std::vector<uint32>* tags)
+	{
+		m_displayListTags = tags;
+		m_displayListTagIndex = 0;
+	}
+
 private:
 	bool m_drawPassActive{ false };
 	bool m_isFirstDraw{false};
 	bool m_vertexBufferChanged{ false };
 	bool m_uniformBufferChanged{ false };
 	boost::container::small_vector<CmdQueuePos, 4> m_queuePosStack;
+	const std::vector<uint32>* m_displayListTags{ nullptr };
+	uint32 m_displayListTagIndex{ 0 };
 };
 
 void LatteCP_processCommandBuffer(DrawPassContext& drawPassCtx);
@@ -217,6 +228,7 @@ void LatteCP_itIndirectBufferDepr(LatteCMDPtr cmd, uint32 nWords)
 	if (sizeInU32s > 0)
 	{
 		DrawPassContext drawPassCtx;
+		drawPassCtx.setDisplayListTags(LatteDebug_GetDisplayListTags(physicalAddress));
 		uint32be* buf = MEMPTR<uint32be>(physicalAddress).GetPtr();
 		drawPassCtx.PushCurrentCommandQueuePos(buf, buf, buf + sizeInU32s);
 
@@ -235,6 +247,7 @@ void LatteCP_itIndirectBuffer(LatteCMDPtr cmd, uint32 nWords, DrawPassContext& d
 	uint32 sizeInDWords = LatteReadCMD();
 	if (sizeInDWords > 0)
 	{
+		drawPassCtx.setDisplayListTags(LatteDebug_GetDisplayListTags(physicalAddress));
 		uint32 displayListSize = sizeInDWords * 4;
 		uint32be* buf = MEMPTR<uint32be>(physicalAddress).GetPtr();
 		drawPassCtx.PushCurrentCommandQueuePos(buf, buf, buf + sizeInDWords);
@@ -756,6 +769,13 @@ LatteCMDPtr LatteCP_itHLESampleTimer(LatteCMDPtr cmd, uint32 nWords)
 	return cmd;
 }
 
+LatteCMDPtr LatteCP_itHLEDebugSource(LatteCMDPtr cmd, uint32 nWords)
+{
+	cemu_assert_debug(nWords == 1);
+	LatteDebug_SetCurrentTraceTag(LatteReadCMD());
+	return cmd;
+}
+
 LatteCMDPtr LatteCP_itHLESpecialState(LatteCMDPtr cmd, uint32 nWords)
 {
 	cemu_assert_debug(nWords == 2);
@@ -1040,6 +1060,11 @@ void LatteCP_processCommandBuffer_continuousDrawPass(DrawPassContext& drawPassCt
 					LatteCP_itDrawIndex2(cmdData, nWords, drawPassCtx);
 					break;
 				}
+				case IT_HLE_DEBUG_SOURCE:
+				{
+					LatteCP_itHLEDebugSource(cmdData, nWords);
+					break;
+				}
 				case IT_SET_CONTEXT_REG:
 				{
 					drawPassCtx.endDrawPass();
@@ -1288,6 +1313,11 @@ void LatteCP_processCommandBuffer(DrawPassContext& drawPassCtx)
 				case IT_HLE_SAMPLE_TIMER:
 				{
 					LatteCP_itHLESampleTimer(cmdData, nWords);
+					break;
+				}
+				case IT_HLE_DEBUG_SOURCE:
+				{
+					LatteCP_itHLEDebugSource(cmdData, nWords);
 					break;
 				}
 				case IT_HLE_SPECIAL_STATE:
@@ -1591,6 +1621,12 @@ void LatteCP_ProcessRingbuffer()
 				timerRecheck += CP_TIMER_RECHECK / 512;
 				break;
 			}
+			case IT_HLE_DEBUG_SOURCE:
+			{
+				LatteCP_itHLEDebugSource(cmd, nWords);
+				timerRecheck += CP_TIMER_RECHECK / 1024;
+				break;
+			}
 			case IT_HLE_SPECIAL_STATE:
 			{
 				LatteCP_itHLESpecialState(cmd, nWords);
@@ -1872,6 +1908,11 @@ void LatteCP_DebugPrintCmdBuffer(uint32be* bufferPtr, uint32 size)
 			case IT_HLE_SAMPLE_TIMER:
 			{
 				cemuLog_log(LogType::Force, "{} IT_HLE_SAMPLE_TIMER", strPrefix);
+				break;
+			}
+			case IT_HLE_DEBUG_SOURCE:
+			{
+				cemuLog_log(LogType::Force, "{} IT_HLE_DEBUG_SOURCE", strPrefix);
 				break;
 			}
 			case IT_HLE_SPECIAL_STATE:

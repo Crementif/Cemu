@@ -54,6 +54,7 @@
 #define IT_HLE_SPECIAL_STATE					0xF9
 #define IT_HLE_BEGIN_OCCLUSION_QUERY			0xFA
 #define IT_HLE_END_OCCLUSION_QUERY				0xFB
+#define IT_HLE_DEBUG_SOURCE						0xFC
 
 #define pm4HeaderType3(__itCode, __dataDWordCount) (0xC0000000|((uint32)(__itCode)<<8)|((uint32)((__dataDWordCount)-1)<<16))
 #define pm4HeaderType2Filler() (0x80000000)

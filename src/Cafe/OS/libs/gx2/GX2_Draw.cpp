@@ -31,7 +31,10 @@ namespace GX2
 
 	void GX2DrawIndexedEx(GX2PrimitiveMode2 primitiveMode, uint32 count, GX2IndexType indexType, void* indexData, uint32 baseVertex, uint32 numInstances)
 	{
-		GX2ReserveCmdSpace(3 + 3 + 2 + 2 + 6);
+		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+		GX2ReserveCmdSpace(3 + 3 + 2 + 2 + 6 + debugTagWords);
+		if (debugTagWords != 0)
+			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(
 			// IT_SET_CTL_CONST
 			pm4HeaderType3(IT_SET_CTL_CONST, 2), 0,
@@ -56,7 +59,10 @@ namespace GX2
 
 	void GX2DrawIndexedEx2(GX2PrimitiveMode2 primitiveMode, uint32 count, GX2IndexType indexType, void* indexData, uint32 baseVertex, uint32 numInstances, uint32 baseInstance)
 	{
-		GX2ReserveCmdSpace(3 + 3 + 3 + 2 + 2 + 6 + 3);
+		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+		GX2ReserveCmdSpace(3 + 3 + 3 + 2 + 2 + 6 + 3 + debugTagWords);
+		if (debugTagWords != 0)
+			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(
 			// IT_SET_CTL_CONST
 			pm4HeaderType3(IT_SET_CTL_CONST, 2), 0,
@@ -88,7 +94,10 @@ namespace GX2
 
 	void GX2DrawEx(GX2PrimitiveMode2 primitiveMode, uint32 count, uint32 baseVertex, uint32 numInstances)
 	{
-		GX2ReserveCmdSpace(3 + 3 + 2 + 2 + 6);
+		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+		GX2ReserveCmdSpace(3 + 3 + 2 + 2 + 6 + debugTagWords);
+		if (debugTagWords != 0)
+			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(
 			// IT_SET_CTL_CONST
 			pm4HeaderType3(IT_SET_CTL_CONST, 2), 0,
@@ -102,7 +111,7 @@ namespace GX2
 			// IT_NUM_INSTANCES
 			pm4HeaderType3(IT_NUM_INSTANCES, 1),
 			numInstances,
-			// IT_DRAW_INDEX_2
+			// IT_DRAW_INDEX_AUTO
 			pm4HeaderType3(IT_DRAW_INDEX_AUTO, 2) | 0x00000001,
 			count,
 			0 // DRAW_INITIATOR
@@ -130,13 +139,17 @@ namespace GX2
 			cemu_assert_unimplemented();
 		}
 
-		GX2ReserveCmdSpace(3 + 3 + 3 + 2 + 2 + 6 + 3 + numIndexU32s);
+		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+		GX2ReserveCmdSpace(3 + 3 + 3 + 2 + 2 + 6 + 3 + numIndexU32s + debugTagWords);
 
 		if (numIndexU32s > 0x4000 - 2)
 		{
 			cemuLog_log(LogType::Force, "GX2DrawIndexedImmediateEx(): Draw exceeds maximum PM4 command size. Keep index size below 16KiB minus 8 byte");
 			return;
 		}
+
+		if (debugTagWords != 0)
+			gx2WriteGather_submitDebugTag();
 
 		// set base vertex
 		gx2WriteGather_submitU32AsBE(pm4HeaderType3(IT_SET_CTL_CONST, 2));

@@ -7,6 +7,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanPipelineCompiler.h"
 
 #include "Cafe/HW/Latte/Core/LatteBufferCache.h"
+#include "Cafe/HW/Latte/Core/LatteDebugInstrumentation.h"
 #include "Cafe/HW/Latte/Core/LattePerformanceMonitor.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
 
@@ -734,7 +735,8 @@ VulkanRenderer::VulkanRenderer()
 	if (this->IsTracingToolEnabled())
 		cemuLog_log(LogType::Force, "Debug: Tracing tool detected, will recompile all shaders with debug info enabled. This disables the SPIR-V cache.");
 	if (this->IsDebugMarkersEnabled())
-		cemuLog_log(LogType::Force, "Debug: Detected tool capable of using debug markers, will use vkDebugMarkerSetObjectNameEXT to identify Vulkan objects");
+		cemuLog_log(LogType::Force, "Debug: Detected tool capable of using Vulkan debug markers, will tag Vulkan objects and command buffer events");
+	LatteDebug_EnableGpuMarkers(this->IsDebugMarkersEnabled());
 
 	// set initial viewport and scissor box size
 	m_state.currentViewport.width = 4;
@@ -806,6 +808,7 @@ VulkanRenderer::VulkanRenderer()
 
 VulkanRenderer::~VulkanRenderer()
 {
+	LatteDebug_EnableGpuMarkers(false);
 	SubmitCommandBuffer();
 	WaitDeviceIdle();
 	WaitCommandBufferFinished(GetCurrentCommandBufferId());
@@ -3020,6 +3023,47 @@ void VulkanRenderer::NotifyLatteCommandProcessorIdle()
 		SubmitCommandBuffer();
 }
 
+void VulkanRenderer::debug_beginCmdLabel(const char* labelName, const float color[4])
+{
+	if (!IsDebugMarkersEnabled() || !vkCmdBeginDebugUtilsLabelEXT || !m_state.currentCommandBuffer || !labelName)
+		return;
+
+	VkDebugUtilsLabelEXT labelInfo{};
+	labelInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+	labelInfo.pLabelName = labelName;
+	if (color)
+		std::memcpy(labelInfo.color, color, sizeof(labelInfo.color));
+	vkCmdBeginDebugUtilsLabelEXT(m_state.currentCommandBuffer, &labelInfo);
+}
+
+void VulkanRenderer::debug_endCmdLabel()
+{
+	if (!IsDebugMarkersEnabled() || !vkCmdEndDebugUtilsLabelEXT || !m_state.currentCommandBuffer)
+		return;
+	vkCmdEndDebugUtilsLabelEXT(m_state.currentCommandBuffer);
+}
+
+void VulkanRenderer::debug_insertCmdLabel(const char* labelName, const float color[4])
+{
+	if (!IsDebugMarkersEnabled() || !vkCmdInsertDebugUtilsLabelEXT || !m_state.currentCommandBuffer || !labelName)
+		return;
+
+	VkDebugUtilsLabelEXT labelInfo{};
+	labelInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+	labelInfo.pLabelName = labelName;
+	if (color)
+		std::memcpy(labelInfo.color, color, sizeof(labelInfo.color));
+	vkCmdInsertDebugUtilsLabelEXT(m_state.currentCommandBuffer, &labelInfo);
+}
+
+std::string VulkanRenderer::debug_makeLabelWithCurrentTrace(const std::string& label) const
+{
+	const char* traceSummary = LatteDebug_GetCurrentTraceSummary();
+	if (!traceSummary || traceSummary[0] == '\0')
+		return label;
+	return fmt::format("{} | ppc: {}", label, traceSummary);
+}
+
 void VulkanBenchmarkPrintResults();
 
 void VulkanRenderer::SwapBuffers(bool swapTV, bool swapDRC)
@@ -3420,16 +3464,24 @@ void VulkanRenderer::texture_clearSlice(LatteTexture* hostTexture, sint32 sliceI
 
 void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 sliceIndex, sint32 mipIndex, float r, float g, float b, float a)
 {
+	const uint64 totalStart = PPCTimer_getRawTsc();
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 	if(vkTexture->dim == Latte::E_DIM::DIM_3D)
 	{
 		cemu_assert_unimplemented();
 	}
 	ClearColorImage(vkTexture, sliceIndex, mipIndex, {r, g, b, a}, VK_IMAGE_LAYOUT_GENERAL);
+	if (this->IsDebugMarkersEnabled() && LatteDebug_GetCurrentTraceSummary())
+	{
+		auto clearLabel = fmt::format("clear-color cpu={}us slice={} mip={}", (uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart), sliceIndex, mipIndex);
+		clearLabel = debug_makeLabelWithCurrentTrace(clearLabel);
+		debug_insertCmdLabel(clearLabel.c_str(), kClearLabelColor);
+	}
 }
 
 void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 sliceIndex, sint32 mipIndex, bool clearDepth, bool clearStencil, float depthValue, uint32 stencilValue)
 {
+	const uint64 totalStart = PPCTimer_getRawTsc();
 	draw_endRenderPass(); // vkCmdClearDepthStencilImage must not be inside renderpass
 
 	auto vkTexture = (LatteTextureVk*)hostTexture;
@@ -3467,6 +3519,17 @@ void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 s
 	vkCmdClearDepthStencilImage(m_state.currentCommandBuffer, imageObj->m_image, VK_IMAGE_LAYOUT_GENERAL, &depthStencilValue, 1, &range);
 
 	barrier_image<ANY_TRANSFER, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkTexture, subresourceRange, VK_IMAGE_LAYOUT_GENERAL);
+	if (this->IsDebugMarkersEnabled() && LatteDebug_GetCurrentTraceSummary())
+	{
+		auto clearLabel = fmt::format("clear-depth cpu={}us slice={} mip={} depth={} stencil={}",
+			(uint32)PPCTimer_tscToMicroseconds(PPCTimer_getRawTsc() - totalStart),
+			sliceIndex,
+			mipIndex,
+			clearDepth ? 1 : 0,
+			clearStencil ? 1 : 0);
+		clearLabel = debug_makeLabelWithCurrentTrace(clearLabel);
+		debug_insertCmdLabel(clearLabel.c_str(), kClearLabelColor);
+	}
 }
 
 void VulkanRenderer::texture_loadSlice(LatteTexture* hostTexture, sint32 width, sint32 height, sint32 depth, void* pixelData, sint32 sliceIndex, sint32 mipIndex, uint32 compressedImageSize)

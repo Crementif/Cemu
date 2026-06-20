@@ -84,7 +84,10 @@ namespace GX2
 
 	void SubmitHLEClear(GX2ColorBuffer* colorBuffer, float colorRGBA[4], GX2DepthBuffer* depthBuffer, float depthClearValue, uint8 stencilClearValue, bool clearColor, bool clearDepth, bool clearStencil)
 	{
-		GX2ReserveCmdSpace(50);
+		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
+		GX2ReserveCmdSpace(50 + debugTagWords);
+		if (debugTagWords != 0)
+			gx2WriteGather_submitDebugTag();
 		uint32 hleClearFlags = 0;
 		if (clearColor)
 			hleClearFlags |= 1;

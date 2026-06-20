@@ -696,6 +696,14 @@ private:
 		std::vector<uint16> list_availableQueryIndices;
 	}m_occlusionQueries;
 
+	struct
+	{
+		uint32 totalSetupUs{};
+		uint32 shaderSetupUs{};
+		uint32 textureSetupUs{};
+		uint32 mrtSetupUs{};
+	}m_debugDrawSequenceInfo{};
+
 	// barrier
 
 	enum SYNC_OP : uint32
@@ -939,6 +947,10 @@ private:
 
 	// debug
 	void debug_genericBarrier();
+	void debug_beginCmdLabel(const char* labelName, const float color[4]);
+	void debug_endCmdLabel();
+	void debug_insertCmdLabel(const char* labelName, const float color[4]);
+	std::string debug_makeLabelWithCurrentTrace(const std::string& label) const;
 
 	// shaders
 	struct

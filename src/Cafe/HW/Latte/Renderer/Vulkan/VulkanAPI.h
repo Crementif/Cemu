@@ -64,6 +64,9 @@ VKFUNC_INSTANCE(vkDestroyDevice);
 VKFUNC_INSTANCE(vkDeviceWaitIdle);
 
 // device debug functions
+VKFUNC_DEVICE(vkCmdBeginDebugUtilsLabelEXT);
+VKFUNC_DEVICE(vkCmdEndDebugUtilsLabelEXT);
+VKFUNC_DEVICE(vkCmdInsertDebugUtilsLabelEXT);
 
 // instance debug functions
 VKFUNC_INSTANCE(vkCreateDebugReportCallbackEXT);
