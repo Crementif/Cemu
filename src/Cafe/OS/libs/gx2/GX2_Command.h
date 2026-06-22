@@ -13,6 +13,7 @@ namespace GX2
 		bool isDisplayList;
 		bool hasDebugTraceHash;
 		uint64 lastDebugTraceHash;
+		uint32 lastDebugTraceTag;
 		std::vector<uint32> debugTraceTags;
 	};
 

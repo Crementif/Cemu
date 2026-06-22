@@ -33,7 +33,7 @@ namespace GX2
 	{
 		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
 		GX2ReserveCmdSpace(3 + 3 + 2 + 2 + 6 + debugTagWords);
-		if (debugTagWords != 0)
+		if (LatteDebug_AreGpuMarkersEnabled())
 			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(
 			// IT_SET_CTL_CONST
@@ -61,7 +61,7 @@ namespace GX2
 	{
 		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
 		GX2ReserveCmdSpace(3 + 3 + 3 + 2 + 2 + 6 + 3 + debugTagWords);
-		if (debugTagWords != 0)
+		if (LatteDebug_AreGpuMarkersEnabled())
 			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(
 			// IT_SET_CTL_CONST
@@ -96,7 +96,7 @@ namespace GX2
 	{
 		const uint32 debugTagWords = gx2WriteGather_getDebugTagWordCount();
 		GX2ReserveCmdSpace(3 + 3 + 2 + 2 + 6 + debugTagWords);
-		if (debugTagWords != 0)
+		if (LatteDebug_AreGpuMarkersEnabled())
 			gx2WriteGather_submitDebugTag();
 		gx2WriteGather_submit(
 			// IT_SET_CTL_CONST
@@ -148,7 +148,7 @@ namespace GX2
 			return;
 		}
 
-		if (debugTagWords != 0)
+		if (LatteDebug_AreGpuMarkersEnabled())
 			gx2WriteGather_submitDebugTag();
 
 		// set base vertex

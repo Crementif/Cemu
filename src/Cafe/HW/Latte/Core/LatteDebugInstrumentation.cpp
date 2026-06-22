@@ -8,8 +8,8 @@ namespace
 {
 constexpr uint32 kTraceRecordCount = 8192;
 constexpr uint32 kTraceRecordMask = kTraceRecordCount - 1;
-constexpr size_t kTraceSummaryLength = 320;
-constexpr sint32 kTraceDepth = 5;
+constexpr size_t kTraceSummaryLength = 640;
+constexpr sint32 kTraceDepth = 12;
 constexpr uint32 kSymbolSummaryCacheSize = 128;
 
 struct TraceRecord
@@ -196,6 +196,12 @@ void CaptureTraceSummary(PPCInterpreter_t* hCPU, TraceRecord& record)
     char* cursor = record.stackSummary;
     size_t remaining = std::size(record.stackSummary);
     sint32 frameCount = 0;
+
+    if (hCPU->spr.LR != 0)
+    {
+        AppendSymbolSummary(cursor, remaining, hCPU->spr.LR);
+        frameCount++;
+    }
 
     while (frameCount < kTraceDepth)
     {

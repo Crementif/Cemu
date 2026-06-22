@@ -78,7 +78,32 @@ void gx2WriteGather_submitDebugTag()
 	uint32 coreIndex = PPCInterpreter_getCoreIndex(hCPU);
 	auto& coreCBState = GX2::s_perCoreCBState[coreIndex];
 	uint64 traceHash = LatteDebug_CalculateTraceHash(hCPU);
-	if (coreCBState.hasDebugTraceHash && coreCBState.lastDebugTraceHash == traceHash)
+	bool isDuplicateTrace = coreCBState.hasDebugTraceHash && coreCBState.lastDebugTraceHash == traceHash;
+
+	if (coreCBState.isDisplayList)
+	{
+		// Display list buffers can't be expanded, so the tag can't be embedded inline. Instead we record
+		// one tag per draw into a side-channel that is replayed by draw index. To keep that index aligned
+		// we must push exactly one entry per draw, reusing the previous tag for consecutive identical stacks.
+		uint32 traceTag;
+		if (isDuplicateTrace)
+		{
+			traceTag = coreCBState.lastDebugTraceTag;
+		}
+		else
+		{
+			traceTag = LatteDebug_CreateTraceTag(hCPU);
+			if (traceTag == 0)
+				traceTag = coreCBState.lastDebugTraceTag;
+			coreCBState.hasDebugTraceHash = true;
+			coreCBState.lastDebugTraceHash = traceHash;
+			coreCBState.lastDebugTraceTag = traceTag;
+		}
+		coreCBState.debugTraceTags.push_back(traceTag);
+		return;
+	}
+
+	if (isDuplicateTrace)
 		return;
 
 	uint32 traceTag = LatteDebug_CreateTraceTag(hCPU);
@@ -86,12 +111,7 @@ void gx2WriteGather_submitDebugTag()
 		return;
 	coreCBState.hasDebugTraceHash = true;
 	coreCBState.lastDebugTraceHash = traceHash;
-
-	if (coreCBState.isDisplayList)
-	{
-		coreCBState.debugTraceTags.push_back(traceTag);
-		return;
-	}
+	coreCBState.lastDebugTraceTag = traceTag;
 
 	gx2WriteGather_submitU32AsBE(pm4HeaderType3(IT_HLE_DEBUG_SOURCE, 1));
 	gx2WriteGather_submitU32AsBE(traceTag);
@@ -147,6 +167,7 @@ namespace GX2
 			s_perCoreCBState[i].isDisplayList = false;
 			s_perCoreCBState[i].hasDebugTraceHash = false;
 			s_perCoreCBState[i].lastDebugTraceHash = 0;
+			s_perCoreCBState[i].lastDebugTraceTag = 0;
 		}
 		// start first command buffer for main core
 		GX2Command_StartNewCommandBuffer(0x100);
@@ -195,6 +216,7 @@ namespace GX2
 		coreCBState.isDisplayList = isDisplayList;
 		coreCBState.hasDebugTraceHash = false;
 		coreCBState.lastDebugTraceHash = 0;
+		coreCBState.lastDebugTraceTag = 0;
 	}
 
 	void GX2Command_StartNewCommandBuffer(uint32 numU32s)

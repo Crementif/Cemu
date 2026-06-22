@@ -44,6 +44,8 @@ class DrawPassContext
 		LatteCMDPtr current;
 		LatteCMDPtr start;
 		LatteCMDPtr end;
+		const std::vector<uint32>* tags{ nullptr };
+		uint32 tagIndex{ 0 };
 	};
 public:
 	bool isWithinDrawPass() const
@@ -107,7 +109,9 @@ public:
 	// command buffer processing position
 	void PushCurrentCommandQueuePos(LatteCMDPtr current, LatteCMDPtr start, LatteCMDPtr end)
 	{
-		m_queuePosStack.emplace_back(current, start, end);
+		auto& entry = m_queuePosStack.emplace_back(current, start, end);
+		entry.tags = m_displayListTags;
+		entry.tagIndex = m_displayListTagIndex;
 	}
 
 	bool PopCurrentCommandQueuePos(LatteCMDPtr& current, LatteCMDPtr& start, LatteCMDPtr& end)
@@ -118,6 +122,8 @@ public:
 		current = it.current;
 		start = it.start;
 		end = it.end;
+		m_displayListTags = it.tags;
+		m_displayListTagIndex = it.tagIndex;
 		m_queuePosStack.pop_back();
 		return true;
 	}
