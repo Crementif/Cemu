@@ -1164,7 +1164,25 @@ bool AArch64GenContext_t::fpr_load(IMLInstruction* imlInstruction, bool indexed)
 		}
 		else
 		{
+			// FPCR.FZ flushes denormal inputs too, unlike MXCSR.FTZ on x86, but lfs has to
+			// convert them exactly. rebuilding the value as mantissa * +-2^-149 keeps every
+			// operand normal so FZ never sees one. only a zero word skips it, fcvt is exact there
+			Label normal;
+			Label done;
+			tst(TEMP_GPR2.WReg, 0x7f800000);
+			ccmp(TEMP_GPR2.WReg, 0, 4, Cond::EQ);
+			beq(normal);
+			and_(TEMP_GPR1.WReg, TEMP_GPR2.WReg, 0x7fffff);
+			ucvtf(dataDReg, TEMP_GPR1.WReg);
+			lsr(TEMP_GPR1.XReg, TEMP_GPR2.XReg, 31);
+			mov(TEMP_GPR2.XReg, 0x36A0000000000000ull); // 2^-149
+			orr(TEMP_GPR1.XReg, TEMP_GPR2.XReg, TEMP_GPR1.XReg, ShMod::LSL, 63);
+			fmov(TEMP_FPR.DReg, TEMP_GPR1.XReg);
+			fmul(dataDReg, dataDReg, TEMP_FPR.DReg);
+			b(done);
+			L(normal);
 			fcvt(dataDReg, dataSReg);
+			L(done);
 		}
 	}
 	else if (mode == PPCREC_FPR_LD_MODE_DOUBLE)
