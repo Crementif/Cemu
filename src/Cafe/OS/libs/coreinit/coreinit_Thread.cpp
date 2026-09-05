@@ -15,7 +15,7 @@
 
 #include "util/helpers/helpers.h"
 
-#if defined(__aarch64__) || defined(_M_ARM64)
+#if defined(ARCH_AARCH64)
 #if defined(__clang__)
 #include <arm_acle.h>
 #elif defined(_MSC_VER)
@@ -29,7 +29,7 @@ void enableFlushDenormalsToZero()
 {
 #if defined(ARCH_X86_64)
 	_mm_setcsr(_mm_getcsr() | 0x8000);
-#elif defined(__aarch64__) || defined(_M_ARM64)
+#elif defined(ARCH_AARCH64)
 #if defined(__clang__)
 	__arm_wsr64("fpcr", __arm_rsr64("fpcr") | (1 << 24));
 #elif defined(__GNUC__)
@@ -52,7 +52,7 @@ void nnNfp_update();
 
 namespace coreinit
 {
-#ifdef __arm64__
+#if defined(ARCH_AARCH64) && BOOST_OS_MACOS
 	void __OSFiberThreadEntry(uint32, uint32);
 #else
 	void __OSFiberThreadEntry(void* thread);
@@ -1338,7 +1338,7 @@ namespace coreinit
 		__OSThreadStartTimeslice(hostThread->m_thread, &hostThread->ppcInstance);
 	}
 
-#ifdef __arm64__
+#if defined(ARCH_AARCH64) && BOOST_OS_MACOS
 	void __OSFiberThreadEntry(uint32 _high, uint32 _low)
 	{
 		uint64 _thread = (uint64) _high << 32 | _low;

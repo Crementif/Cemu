@@ -15,7 +15,7 @@
 #include "IML/IML.h"
 #include "IML/IMLRegisterAllocator.h"
 #include "BackendX64/BackendX64.h"
-#ifdef __aarch64__
+#ifdef ARCH_AARCH64
 #include "BackendAArch64/BackendAArch64.h"
 #endif
 #include "util/highresolutiontimer/HighResolutionTimer.h"
@@ -240,7 +240,7 @@ PPCRecFunction_t* PPCRecompiler_recompileFunction(PPCFunctionBoundaryTracker::PP
 	{
 		return nullptr;
 	}
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 	bool aarch64GenerationSuccess = PPCRecompiler_generateAArch64Code(ppcRecFunc, &ppcImlGenContext);
 	if (aarch64GenerationSuccess == false)
 	{
@@ -323,7 +323,7 @@ void PPCRecompiler_NativeRegisterAllocatorPass(ppcImlGenContext_t& ppcImlGenCont
 	fprPhysPool.SetAvailable(IMLArchX86::PHYSREG_FPR_BASE + 12);
 	fprPhysPool.SetAvailable(IMLArchX86::PHYSREG_FPR_BASE + 13);
 	fprPhysPool.SetAvailable(IMLArchX86::PHYSREG_FPR_BASE + 14);
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 	auto& gprPhysPool = raParam.GetPhysRegPool(IMLRegFormat::I64);
 	for (auto i = IMLArchAArch64::PHYSREG_GPR_BASE; i < IMLArchAArch64::PHYSREG_GPR_BASE + IMLArchAArch64::PHYSREG_GPR_COUNT; i++)
 	{
@@ -683,7 +683,7 @@ void PPCRecompiler_init()
 	MemMapper::AllocateMemory(&(ppcRecompilerInstanceData->_x64XMM_xorNegateMaskBottom), sizeof(PPCRecompilerInstanceData_t) - offsetof(PPCRecompilerInstanceData_t, _x64XMM_xorNegateMaskBottom), MemMapper::PAGE_PERMISSION::P_RW, true);
 #ifdef ARCH_X86_64
 	PPCRecompilerX64Gen_generateRecompilerInterfaceFunctions();
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 	PPCRecompilerAArch64Gen_generateRecompilerInterfaceFunctions();
 #endif
     PPCRecompiler_allocateRange(0, 0x1000); // the first entry is used for fallback to interpreter

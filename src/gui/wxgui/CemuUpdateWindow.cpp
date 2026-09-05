@@ -178,7 +178,7 @@ static std::string GetPlatformUpdateIdentifier()
 #else
 	return "";
 #endif
-#if defined(__aarch64__)
+#if defined(ARCH_AARCH64)
 	identifier.append("_aarch64");
 #elif defined(ARCH_X86_64)
 	identifier.append("_x86_64");

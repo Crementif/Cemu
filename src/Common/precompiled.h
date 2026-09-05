@@ -28,6 +28,8 @@
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
 #define ARCH_X86_64
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#define ARCH_AARCH64
 #endif
 
 // c includes
@@ -353,7 +355,7 @@ FORCE_INLINE int BSF(uint32 v) // returns index of first bit set, counting from 
 }
 
 // On aarch64 we handle some of the x86 intrinsics by implementing them as wrappers
-#if defined(__aarch64__)
+#if defined(ARCH_AARCH64) && (defined(__GNUC__) || defined(__clang__))
 
 inline void _mm_pause()
 {

@@ -6,7 +6,7 @@
 #include "IMLRegisterAllocatorRanges.h"
 
 #include "../BackendX64/BackendX64.h"
-#ifdef __aarch64__
+#ifdef ARCH_AARCH64
 #include "../BackendAArch64/BackendAArch64.h"
 #endif
 
@@ -123,7 +123,7 @@ static void SetupCallingConvention(const IMLInstruction* instruction, IMLFixedRe
 	fixedRegs.listOutput.emplace_back(IMLREG_INVALID, volatileRegisters);
 }
 
-#if defined(__aarch64__)
+#if defined(ARCH_AARCH64)
 // aarch64
 static void GetInstructionFixedRegisters(IMLInstruction* instruction, IMLFixedRegisters& fixedRegs)
 {

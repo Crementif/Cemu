@@ -6,7 +6,7 @@
 
 #if defined(ARCH_X86_64) && defined(__GNUC__)
 #include <immintrin.h>
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 #include <arm_neon.h>
 #endif
 
@@ -502,7 +502,7 @@ void LatteIndices_fastConvertU32_AVX2(const void* indexDataInput, void* indexDat
 	// update min/max
 	indexMax = std::max(indexMax, _maxIndex);
 }
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 
 void LatteIndices_fastConvertU16_NEON(const void* indexDataInput, void* indexDataOutput, uint32 count, uint32& indexMax)
 {
@@ -805,7 +805,7 @@ void LatteIndices_decode(const void* indexData, LatteIndexType indexType, uint32
 				LatteIndices_fastConvertU16_SSE41(indexData, indexOutputPtr, count, indexMax);
 			else
 				LatteIndices_convertBE<uint16>(indexData, indexOutputPtr, count, indexMax);
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 			LatteIndices_fastConvertU16_NEON(indexData, indexOutputPtr, count, indexMax);
 #else
 			LatteIndices_convertBE<uint16>(indexData, indexOutputPtr, count, indexMax);
@@ -818,7 +818,7 @@ void LatteIndices_decode(const void* indexData, LatteIndexType indexType, uint32
 				LatteIndices_fastConvertU32_AVX2(indexData, indexOutputPtr, count, indexMax);
 			else
 				LatteIndices_convertBE<uint32>(indexData, indexOutputPtr, count, indexMax);
-#elif defined(__aarch64__)
+#elif defined(ARCH_AARCH64)
 			LatteIndices_fastConvertU32_NEON(indexData, indexOutputPtr, count, indexMax);
 #else
 			LatteIndices_convertBE<uint32>(indexData, indexOutputPtr, count, indexMax);
