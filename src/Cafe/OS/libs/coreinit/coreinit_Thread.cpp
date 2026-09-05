@@ -23,9 +23,7 @@
 #endif
 #endif
 
-namespace {
-
-void enableFlushDenormalsToZero()
+static void enableFlushDenormalsToZero()
 {
 #if defined(ARCH_X86_64)
 	_mm_setcsr(_mm_getcsr() | 0x8000);
@@ -38,8 +36,6 @@ void enableFlushDenormalsToZero()
 	_WriteStatusReg(ARM64_FPCR, _ReadStatusReg(ARM64_FPCR) | (1 << 24));
 #endif
 #endif
-}
-
 }
 
 SlimRWLock srwlock_activeThreadList;
