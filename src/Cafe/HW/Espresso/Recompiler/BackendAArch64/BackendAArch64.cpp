@@ -745,7 +745,27 @@ bool AArch64GenContext_t::r_r_r(IMLInstruction* imlInstruction)
 	}
 	else if (imlInstruction->operation == PPCREC_IML_OP_DIVIDE_SIGNED)
 	{
+		// sdiv does not trap, but it returns 0 for a zero divisor and 0x80000000 for
+		// 0x80000000 / -1, where divw is defined to return the sign of the dividend and -1
+		Label divisorZero;
+		Label overflow;
+		Label divide;
+		Label done;
+		cbz(regOperand2, divisorZero);
+		cmn(regOperand2, 1);
+		bne(divide);
+		mov(TEMP_GPR1.WReg, 0x80000000);
+		cmp(regOperand1, TEMP_GPR1.WReg);
+		beq(overflow);
+		L(divide);
 		sdiv(regResult, regOperand1, regOperand2);
+		b(done);
+		L(divisorZero);
+		asr(regResult, regOperand1, 31);
+		b(done);
+		L(overflow);
+		mov(regResult, 0xFFFFFFFF);
+		L(done);
 	}
 	else if (imlInstruction->operation == PPCREC_IML_OP_DIVIDE_UNSIGNED)
 	{
