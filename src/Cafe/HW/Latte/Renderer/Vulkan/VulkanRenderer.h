@@ -8,6 +8,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/CachedFBOVk.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VKRMemoryManager.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/SwapchainInfoVk.h"
+#include "Cafe/HostModule/HostModule.h"
 #include "util/math/vector2.h"
 #include "util/helpers/Semaphore.h"
 #include "util/containers/flat_hash_map.hpp"
@@ -959,7 +960,18 @@ public:
 	bool IsTracingToolEnabled() const { return m_featureControl.usingTracingTool; }
 	bool UseAttachmentFeedbackLoop() const { return m_featureControl.deviceExtensions.attachment_feedback_loop_dynamic_state; }
 
+	// host modules
+	void HostModule_DispatchEvent(const HostModule::HostEvent& event, LatteTexture* texture, uint32 sliceIndex);
+	void HostModule_DeliverScanBuffer(LatteTextureView* textureView, bool padView);
+
 private:
+	static VkResult HostModule_CreateInstance(const VkInstanceCreateInfo& createInfo, VkInstance& instance, bool& createdByModule);
+	static VkPhysicalDevice HostModule_SelectPhysicalDevice(VkInstance instance);
+	static VkResult HostModule_CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo& createInfo, VkDevice& device);
+	void HostModule_NotifyDeviceCreated();
+	void HostModule_NotifyDeviceDestroying();
+	void HostModule_ResetCommandBufferState();
+	void HostModule_AttachSubmitSemaphores(VkSubmitInfo& submitInfo, VkTimelineSemaphoreSubmitInfo& timelineInfo);
 
 	// debug
 	void debug_genericBarrier();

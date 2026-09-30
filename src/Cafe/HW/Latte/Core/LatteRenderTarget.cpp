@@ -17,6 +17,10 @@
 #include "Cafe/OS/libs/erreula/erreula.h"
 #include "input/InputManager.h"
 #include "Cafe/OS/libs/swkbd/swkbd.h"
+#include "Cafe/HostModule/HostModule.h"
+#ifdef ENABLE_VULKAN
+#include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
+#endif
 
 uint32 prevScissorX = 0;
 uint32 prevScissorY = 0;
@@ -749,6 +753,7 @@ void LatteRenderTarget_itHLESwapScanBuffer()
 	FrameBenchmarkHelper::FrameEnd();
 	LatteGPUState.frameCounter++;
 	g_renderer->SwapBuffers(true, true);
+	HostModule::NotifyFrameSubmitted(HostModule::FrameKind::Guest);
 
 	catchOpenGLError();
 	performanceMonitor.gpuTime_frameTime.beginMeasuring();
@@ -1026,6 +1031,10 @@ void LatteRenderTarget_copyToBackbuffer(LatteTextureView* textureView, bool isPa
 		}
 	}
 	cemu_assert(shader);
+#ifdef ENABLE_VULKAN
+	if (HostModule::HasModules() && g_renderer->GetType() == RendererAPI::Vulkan)
+		VulkanRenderer::GetInstance()->HostModule_DeliverScanBuffer(textureView, isPadView);
+#endif
 	g_renderer->DrawBackbufferQuad(textureView, shader, filter==LatteTextureView::MagFilter::kLinear, imageX, imageY, imageWidth, imageHeight, isPadView, clearBackground);
 	g_renderer->HandleScreenshotRequest(textureView, isPadView);
 	if (!g_renderer->ImguiBegin(!isPadView))

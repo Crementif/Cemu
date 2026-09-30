@@ -35,6 +35,7 @@
 #include "Cafe/TitleList/TitleList.h"
 #include "Cafe/TitleList/SaveList.h"
 #include "Cafe/CafeSystem.h"
+#include "Cafe/HostModule/HostModule.h"
 
 wxIMPLEMENT_APP_NO_MAIN(CemuApp);
 
@@ -270,6 +271,9 @@ bool CemuApp::OnInit()
 	DeterminePaths(failedWriteAccess);
 	// make sure default cemu directories exist
 	CreateDefaultCemuFiles();
+	// early enough so modules can prepare settings.xml
+	HostModule::Startup();
+	HostModule::BeforeConfigLoad();
 
 	GetConfigHandle().SetFilename(ActiveSettings::GetConfigPath("settings.xml").generic_wstring());
 

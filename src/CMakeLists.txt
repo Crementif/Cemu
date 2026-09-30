@@ -64,9 +64,26 @@ add_subdirectory(util)
 add_subdirectory(imgui)
 add_subdirectory(resource)
 
+# Modules compiled into Cemu. Each directory adds its library to the global property CEMU_HOST_MODULES
+# and defines void <library>_RegisterHostModule(), which HostModule::RegisterExternalModules calls.
+set(CEMU_EXTERNAL_MODULES "" CACHE STRING "Source directories of modules to compile into Cemu")
+foreach(moduleDir IN LISTS CEMU_EXTERNAL_MODULES)
+	get_filename_component(moduleDirName "${moduleDir}" NAME)
+	add_subdirectory("${moduleDir}" "${CMAKE_CURRENT_BINARY_DIR}/external_modules/${moduleDirName}")
+endforeach()
+get_property(CEMU_HOST_MODULE_LIBRARIES GLOBAL PROPERTY CEMU_HOST_MODULES)
+set(HOST_MODULE_DECLARATIONS "")
+set(HOST_MODULE_REGISTRATIONS "")
+foreach(hostModule IN LISTS CEMU_HOST_MODULE_LIBRARIES)
+	string(APPEND HOST_MODULE_DECLARATIONS "void ${hostModule}_RegisterHostModule();\n")
+	string(APPEND HOST_MODULE_REGISTRATIONS "\t\t${hostModule}_RegisterHostModule();\n")
+endforeach()
+configure_file(Cafe/HostModule/HostModuleRegistry.cpp.in "${CMAKE_CURRENT_BINARY_DIR}/HostModuleRegistry.cpp" @ONLY)
+
 add_executable(CemuBin
 	main.cpp
 	mainLLE.cpp
+	"${CMAKE_CURRENT_BINARY_DIR}/HostModuleRegistry.cpp"
 )
 
 cemu_use_precompiled_header(CemuBin)
@@ -207,6 +224,7 @@ if(ENABLE_SDL)
 endif()
 
 target_link_libraries(CemuBin PRIVATE
+	${CEMU_HOST_MODULE_LIBRARIES}
 	CemuAudio
 	CemuCafe
 	CemuCommon

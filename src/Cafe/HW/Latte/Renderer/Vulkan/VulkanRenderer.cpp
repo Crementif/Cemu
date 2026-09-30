@@ -537,12 +537,13 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 	create_info.ppEnabledLayerNames = m_layerNames.data();
 	create_info.enabledLayerCount = m_layerNames.size();
 
-	err = vkCreateInstance(&create_info, nullptr, &m_instance);
+	bool instanceCreatedByModule = false;
+	err = HostModule_CreateInstance(create_info, m_instance, instanceCreatedByModule);
 
 	if (err == VK_ERROR_LAYER_NOT_PRESENT) {
 		cemuLog_log(LogType::Force, "Failed to enable vulkan validation (VK_LAYER_KHRONOS_validation)");
 		create_info.enabledLayerCount = 0;
-		err = vkCreateInstance(&create_info, nullptr, &m_instance);
+		err = HostModule_CreateInstance(create_info, m_instance, instanceCreatedByModule);
 	}
 
 	if (err != VK_SUCCESS)
@@ -556,7 +557,11 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 	uint64 currentTitleId = CafeSystem::GetForegroundTitleId();
 	if (currentTitleId == 0x00050000101c9500 || currentTitleId == 0x00050000101c9400 || currentTitleId == 0x00050000101c9300)
 	{
-		LinuxBreathOfTheWildWorkaround(m_instance, &create_info);
+		// the workaround recreates the instance, which the module owns
+		if (instanceCreatedByModule)
+			cemuLog_log(LogType::Force, "BOTW/RADV workaround skipped because a host module created the Vulkan instance. Set RADV_DEBUG=llvm manually on affected Mesa versions");
+		else
+			LinuxBreathOfTheWildWorkaround(m_instance, &create_info);
 	}
 #endif
 
@@ -571,6 +576,9 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 	auto& config = GetConfig();
 	decltype(config.vk_graphic_device_uuid) zero{};
 	const bool has_device_set = config.vk_graphic_device_uuid != zero;
+
+	// OpenXR runtimes need a specific GPU
+	const VkPhysicalDevice moduleDevice = HostModule_SelectPhysicalDevice(m_instance);
 
 	VkPhysicalDevice fallbackDevice = VK_NULL_HANDLE;
 	std::string fallbackDeviceName = "";
@@ -592,7 +600,12 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 				fallbackDeviceName = physDeviceProps.properties.deviceName;
 			}
 
-			if (has_device_set)
+			if (moduleDevice != VK_NULL_HANDLE)
+			{
+				if (device != moduleDevice)
+					continue;
+			}
+			else if (has_device_set)
 			{
 				if (memcmp(config.vk_graphic_device_uuid.data(), physDeviceIDProps.deviceUUID, VK_UUID_SIZE) != 0)
 					continue;
@@ -609,7 +622,8 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 		cemuLog_log(LogType::Force, "The selected GPU could not be found or is not suitable. Falling back to first available device instead");
 		m_physicalDevice = fallbackDevice;
 		m_selectedDeviceName = fallbackDeviceName;
-		config.vk_graphic_device_uuid = {}; // resetting device selection
+		if (moduleDevice == VK_NULL_HANDLE)
+			config.vk_graphic_device_uuid = {}; // resetting device selection
 	}
 	else if (m_physicalDevice == VK_NULL_HANDLE)
 	{
@@ -749,7 +763,7 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 	std::vector<const char*> used_extensions;
 	VkDeviceCreateInfo createInfo = CreateDeviceCreateInfo(queueCreateInfos, deviceFeatures, deviceExtensionFeatures, used_extensions);
 
-	VkResult result = vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_logicalDevice);
+	VkResult result = HostModule_CreateDevice(m_physicalDevice, createInfo, m_logicalDevice);
 	if (result != VK_SUCCESS)
 	{
 		cemuLog_log(LogType::Force, "Vulkan: Unable to create a logical device. Error {}", (sint32)result);
@@ -760,6 +774,8 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 
 	vkGetDeviceQueue(m_logicalDevice, m_indices.graphicsFamily, 0, &m_graphicsQueue);
 	vkGetDeviceQueue(m_logicalDevice, m_indices.graphicsFamily, 0, &m_presentQueue);
+
+	HostModule_NotifyDeviceCreated();
 
 	vkDestroySurfaceKHR(m_instance, surface, nullptr);
 
@@ -858,6 +874,7 @@ VulkanRenderer::~VulkanRenderer()
 	SubmitCommandBuffer();
 	WaitDeviceIdle();
 	WaitCommandBufferFinished(GetCurrentCommandBufferId());
+	HostModule_NotifyDeviceDestroying();
 	// shut down pipeline save thread
 	m_destructionRequested = true;
 	m_pipeline_cache_semaphore.notify();
@@ -2237,6 +2254,9 @@ void VulkanRenderer::SubmitCommandBuffer(VkSemaphore signalSemaphore, VkSemaphor
 		waitSemArray[submitInfo.waitSemaphoreCount++] = waitSemaphore;
 	submitInfo.pWaitDstStageMask = semWaitStageMask;
 	submitInfo.pWaitSemaphores = waitSemArray;
+
+	VkTimelineSemaphoreSubmitInfo hostModuleTimelineInfo{};
+	HostModule_AttachSubmitSemaphores(submitInfo, hostModuleTimelineInfo);
 
 	const VkResult result = vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_cmdBufferFences[m_commandBufferIndex]);
 	if (result != VK_SUCCESS)

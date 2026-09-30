@@ -33,6 +33,8 @@ add_library(CemuCafe
   GraphicPack/GraphicPack2Patches.h
   GraphicPack/GraphicPack2PatchesParser.cpp
   GraphicPack/GraphicPackError.h
+  HostModule/HostModule.cpp
+  HostModule/HostModule.h
   HW/ACR/ACR.cpp
   HW/AI/AI.cpp
   HW/AI/AI.h
@@ -108,6 +110,7 @@ add_library(CemuCafe
   HW/Latte/Core/LatteConst.h
   HW/Latte/Core/LatteDraw.h
   HW/Latte/Core/LatteGSCopyShaderParser.cpp
+  HW/Latte/Core/LatteHostEvent.cpp
   HW/Latte/Core/Latte.h
   HW/Latte/Core/LatteIndices.cpp
   HW/Latte/Core/LatteIndices.h
@@ -543,6 +546,7 @@ if (ENABLE_VULKAN)
     HW/Latte/Renderer/Vulkan/VulkanRendererCore.cpp
     HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
     HW/Latte/Renderer/Vulkan/VulkanRenderer.h
+    HW/Latte/Renderer/Vulkan/VulkanRendererHostModule.cpp
     HW/Latte/Renderer/Vulkan/VulkanSurfaceCopy.cpp
     HW/Latte/Renderer/Vulkan/VulkanTextureReadback.h
   )
