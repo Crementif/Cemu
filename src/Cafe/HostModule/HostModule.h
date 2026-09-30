@@ -101,6 +101,8 @@ namespace HostModule
 	void RegisterHLEFunction(const char* libraryName, const char* functionName, HLEFunction function);
 	void RegisterGraphicPack(const std::filesystem::path& path, PackOrder order);
 	const std::vector<std::pair<std::filesystem::path, PackOrder>>& GetGraphicPacks();
+	void RegisterBundledGraphicPacks(const std::filesystem::path& directory);
+	const std::vector<std::filesystem::path>& GetBundledGraphicPackDirectories();
 #ifdef ENABLE_VULKAN
 	PFN_vkGetInstanceProcAddr GetVkInstanceProcAddr();
 	PFN_vkGetDeviceProcAddr GetVkDeviceProcAddr();

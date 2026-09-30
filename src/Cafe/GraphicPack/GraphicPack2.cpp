@@ -13,6 +13,7 @@
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Cafe/HW/Latte/Renderer/RendererOuputShader.h"
+#include "Cafe/HostModule/HostModule.h"
 #include <cinttypes>
 
 std::vector<GraphicPackPtr> GraphicPack2::s_graphic_packs;
@@ -95,6 +96,8 @@ void GraphicPack2::LoadGraphicPack(fs::path graphicPackPath)
 
 void GraphicPack2::LoadAll()
 {
+	LoadHostModulePacks(HostModule::PackOrder::BeforeUser);
+	LoadBundledPacks();
 	std::error_code ec;
 	fs::path basePath = ActiveSettings::GetUserDataPath("graphicPacks");
 	for (fs::recursive_directory_iterator it(basePath, ec); it != end(it); ++it)
@@ -108,6 +111,42 @@ void GraphicPack2::LoadAll()
 			it.disable_recursion_pending(); // dont recurse deeper in a gfx pack directory
 			continue;
 		}
+	}
+	LoadHostModulePacks(HostModule::PackOrder::AfterUser);
+}
+
+void GraphicPack2::LoadBundledPacks()
+{
+	std::error_code ec;
+	for (auto& directory : HostModule::GetBundledGraphicPackDirectories())
+	{
+		for (fs::recursive_directory_iterator it(directory, ec); it != end(it); ++it)
+		{
+			if (!it->is_directory(ec))
+				continue;
+			fs::path packPath = it->path();
+			if (!fs::exists(packPath / "rules.txt", ec))
+				continue;
+			it.disable_recursion_pending();
+			// skip the ones a host module already registered
+			auto& hostPacks = HostModule::GetGraphicPacks();
+			if (std::any_of(hostPacks.begin(), hostPacks.end(), [&packPath](const auto& hostPack) { std::error_code equivalentEc; return fs::equivalent(hostPack.first, packPath, equivalentEc); }))
+				continue;
+			LoadGraphicPack(packPath);
+		}
+	}
+}
+
+void GraphicPack2::LoadHostModulePacks(HostModule::PackOrder order)
+{
+	for (auto& [packPath, packOrder] : HostModule::GetGraphicPacks())
+	{
+		if (packOrder != order)
+			continue;
+		size_t packCount = s_graphic_packs.size();
+		LoadGraphicPack(packPath);
+		if (s_graphic_packs.size() != packCount && !s_graphic_packs.back()->HasConfigEntry())
+			s_graphic_packs.back()->SetEnabled(true);
 	}
 }
 
@@ -131,6 +170,7 @@ bool GraphicPack2::LoadGraphicPack(const fs::path& rulesPath, IniParser& rules)
 
 		if (it != config_entries.cend())
 		{
+			gp->m_hasConfigEntry = true;
 			bool enabled = true;
 			for (auto& kv : it->second)
 			{
@@ -591,7 +631,10 @@ bool GraphicPack2::Reload()
 
 std::string GraphicPack2::GetNormalizedPathString() const
 {
-	return _pathToUtf8(MakeRelativePath(ActiveSettings::GetUserDataPath(), GetRulesPath()).lexically_normal());
+	fs::path relativePath = MakeRelativePath(ActiveSettings::GetUserDataPath(), GetRulesPath());
+	if (relativePath.empty())
+		return _pathToUtf8(GetRulesPath().lexically_normal());
+	return _pathToUtf8(relativePath.lexically_normal());
 }
 
 bool GraphicPack2::ContainsTitleId(uint64_t title_id) const

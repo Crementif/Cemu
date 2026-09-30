@@ -13,6 +13,7 @@ namespace HostModule
 {
 	static std::vector<Module*> s_modules;
 	static std::vector<std::pair<fs::path, PackOrder>> s_graphicPacks;
+	static std::vector<fs::path> s_bundledGraphicPackDirectories;
 
 #ifdef ENABLE_VULKAN
 	static std::mutex s_submitMutex;
@@ -84,9 +85,19 @@ namespace HostModule
 		s_graphicPacks.emplace_back(path, order);
 	}
 
+	void RegisterBundledGraphicPacks(const fs::path& directory)
+	{
+		s_bundledGraphicPackDirectories.emplace_back(directory);
+	}
+
 	const std::vector<std::pair<fs::path, PackOrder>>& GetGraphicPacks()
 	{
 		return s_graphicPacks;
+	}
+
+	const std::vector<fs::path>& GetBundledGraphicPackDirectories()
+	{
+		return s_bundledGraphicPackDirectories;
 	}
 
 #ifdef ENABLE_VULKAN
