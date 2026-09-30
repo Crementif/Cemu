@@ -42,6 +42,9 @@
 #define LATTE_REG_BASE_SAMPLER		0xF000
 
 // emulator only
+#define IT_HLE_HOST_EVENT						0xE0
+#define IT_HLE_SET_VIEW							0xE1
+#define IT_HLE_VIEW_ALU_CONST					0xE2
 #define IT_HLE_COPY_SURFACE_NEW					0xEE
 #define IT_HLE_SYNC_ASYNC_OPERATIONS			0xEF
 #define IT_HLE_REQUEST_SWAP_BUFFERS				0xF0

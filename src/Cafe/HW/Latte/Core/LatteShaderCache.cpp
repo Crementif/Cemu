@@ -9,6 +9,7 @@
 #include "WindowSystem.h"
 
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
+#include "Cafe/HostModule/HostModule.h"
 #ifdef ENABLE_OPENGL
 #include "Cafe/HW/Latte/Renderer/OpenGL/RendererShaderGL.h"
 #endif
@@ -520,6 +521,7 @@ void LatteShaderCache_Load()
 	}
 
 	g_renderer->SwapBuffers(true, true);
+	HostModule::NotifyFrameSubmitted(HostModule::FrameKind::ShaderCacheLoading);
 
 	if (g_shaderCacheLoaderState.textureTVId)
 		g_renderer->DeleteTexture(g_shaderCacheLoaderState.textureTVId);
@@ -660,6 +662,7 @@ void LatteShaderCache_ShowProgress(const std::function <bool(void)>& loadUpdateF
 
 		// finish frame
 		g_renderer->SwapBuffers(true, true);
+		HostModule::NotifyFrameSubmitted(HostModule::FrameKind::ShaderCacheLoading);
 	}
 }
 

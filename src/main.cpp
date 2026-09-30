@@ -5,6 +5,7 @@
 #include "Cafe/OS/libs/coreinit/coreinit_Thread.h"
 #include "Cafe/GameProfile/GameProfile.h"
 #include "Cafe/GraphicPack/GraphicPack2.h"
+#include "Cafe/HostModule/HostModule.h"
 #include "config/CemuConfig.h"
 #include "config/NetworkSettings.h"
 #include "config/LaunchSettings.h"
@@ -128,6 +129,8 @@ void CemuCommonInit()
 	GetConfigHandle().Load();
 	if (NetworkConfig::XMLExists())
 		n_config.Load();
+	// before graphic packs and the renderer load
+	HostModule::Initialize();
 	// parallelize expensive init code
 	std::future<int> futureInitAudioAPI = std::async(std::launch::async, []{ IAudioAPI::InitializeStatic(); IAudioInputAPI::InitializeStatic(); return 0; });
 	std::future<int> futureInitGraphicPacks = std::async(std::launch::async, []{ GraphicPack2::LoadAll(); return 0; });

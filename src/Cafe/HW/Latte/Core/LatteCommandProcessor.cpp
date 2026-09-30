@@ -10,6 +10,7 @@
 #include "Cafe/HW/Latte/Core/LatteBufferCache.h"
 #include "Cafe/HW/Latte/Core/LattePM4.h"
 #include "Cafe/HW/Latte/Core/LatteSurfaceCopy.h"
+#include "Cafe/HW/Latte/Core/LatteHostEvent.h"
 
 #include "Cafe/OS/libs/coreinit/coreinit_Time.h"
 #include "Cafe/OS/libs/TCL/TCL.h" // TCL currently handles the GPU command ringbuffer
@@ -1154,6 +1155,23 @@ void LatteCP_processCommandBuffer_continuousDrawPass(DrawPassContext& drawPassCt
 					}
 					break;
 				}
+				case IT_HLE_SET_VIEW:
+				{
+					LatteHostEvent_itSetView(cmdData, nWords);
+					break;
+				}
+				case IT_HLE_VIEW_ALU_CONST:
+				{
+					bool isVertexStage;
+					if (LatteHostEvent_itViewAluConst(cmdData, nWords, isVertexStage))
+					{
+						if (isVertexStage)
+							drawPassCtx.MarkVSAluConstantsDirty();
+						else
+							drawPassCtx.MarkPSAluConstantsDirty();
+					}
+					break;
+				}
 				default:
 					// unallowed command for fast draw
 					drawPassCtx.endDrawPass();
@@ -1414,6 +1432,22 @@ void LatteCP_processCommandBuffer(DrawPassContext& drawPassCtx)
 				{
 					LatteTextureReadback_UpdateFinishedTransfers(true);
 					LatteQuery_UpdateFinishedQueriesForceFinishAll();
+					break;
+				}
+				case IT_HLE_HOST_EVENT:
+				{
+					LatteHostEvent_itHostEvent(cmdData, nWords);
+					break;
+				}
+				case IT_HLE_SET_VIEW:
+				{
+					LatteHostEvent_itSetView(cmdData, nWords);
+					break;
+				}
+				case IT_HLE_VIEW_ALU_CONST:
+				{
+					bool isVertexStage;
+					LatteHostEvent_itViewAluConst(cmdData, nWords, isVertexStage);
 					break;
 				}
 				default:
@@ -1723,6 +1757,23 @@ void LatteCP_ProcessRingbuffer()
 				//LatteCP_skipWords<LatteCP_readU32Deprc>(nWords);
 				LatteTextureReadback_UpdateFinishedTransfers(true);
 				LatteQuery_UpdateFinishedQueriesForceFinishAll();
+				break;
+			}
+			case IT_HLE_HOST_EVENT:
+			{
+				LatteHostEvent_itHostEvent(cmd, nWords);
+				timerRecheck += CP_TIMER_RECHECK / 64;
+				break;
+			}
+			case IT_HLE_SET_VIEW:
+			{
+				LatteHostEvent_itSetView(cmd, nWords);
+				break;
+			}
+			case IT_HLE_VIEW_ALU_CONST:
+			{
+				bool isVertexStage;
+				LatteHostEvent_itViewAluConst(cmd, nWords, isVertexStage);
 				break;
 			}
 			default:
