@@ -11,6 +11,7 @@
 
 enum class RendererAPI;
 enum class GfxVendor;
+namespace HostModule { enum class PackOrder : uint32_t; }
 
 class GraphicPack2
 {
@@ -117,6 +118,7 @@ public:
 	const std::string& GetVirtualPath() const { return m_virtualPath; } // returns the path in the gfx tree hierarchy
 	const std::string& GetDescription() const { return m_description; }
 	bool IsDefaultEnabled() const {	return m_default_enabled; }
+	bool HasConfigEntry() const { return m_hasConfigEntry; }
 	bool AllowRendertargetSizeOptimization() const { return m_allowRendertargetSizeOptimization; }
 
 	void SetEnabled(bool state) { m_enabled = state; }
@@ -187,6 +189,9 @@ private:
 	bool Activate();
 	bool Deactivate();
 
+	static void LoadHostModulePacks(HostModule::PackOrder order);
+	static void LoadBundledPacks();
+
 	static std::vector<std::shared_ptr<GraphicPack2>> s_graphic_packs;
 	static std::vector<std::shared_ptr<GraphicPack2>> s_active_graphic_packs;
 	static std::atomic_bool s_isReady;
@@ -226,6 +231,7 @@ private:
 	std::string m_description;
 
 	bool m_default_enabled = false;
+	bool m_hasConfigEntry = false;
 
 	bool m_allowRendertargetSizeOptimization = false; // gfx pack supports framebuffers with non-padded sizes, which is an optional optimization introduced with Cemu 2.0-74
 
