@@ -2,6 +2,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureViewVk.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 
 LatteTextureVk::LatteTextureVk(class VulkanRenderer* vkRenderer, Latte::E_DIM dim, MPTR physAddress, MPTR physMipAddress, Latte::E_GX2SURFFMT format, uint32 width, uint32 height, uint32 depth, uint32 pitch, uint32 mipLevels, uint32 swizzle,
 	Latte::E_HWTILEMODE tileMode, bool isDepth)
@@ -22,6 +23,7 @@ LatteTextureVk::LatteTextureVk(class VulkanRenderer* vkRenderer, Latte::E_DIM di
 		effectiveBaseDepth = overwriteInfo.depth;
 	}
 	effectiveBaseDepth = std::max(1, effectiveBaseDepth);
+	hasViewLayer = LatteView_CreatesViewLayer(dim, (uint32)effectiveBaseDepth);
 
 	imageInfo.extent.width = effectiveBaseWidth;
 	imageInfo.extent.height = effectiveBaseHeight;
@@ -39,7 +41,7 @@ LatteTextureVk::LatteTextureVk(class VulkanRenderer* vkRenderer, Latte::E_DIM di
 	else
 	{
 		imageInfo.extent.depth = 1;
-		imageInfo.arrayLayers = effectiveBaseDepth;
+		imageInfo.arrayLayers = effectiveBaseDepth * (hasViewLayer ? 2 : 1);
 		if (dim != Latte::E_DIM::DIM_1D && (effectiveBaseDepth % 6) == 0 && effectiveBaseWidth == effectiveBaseHeight)
 			imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 	}
@@ -111,7 +113,7 @@ LatteTextureVk::LatteTextureVk(class VulkanRenderer* vkRenderer, Latte::E_DIM di
 
 	// init layout array
 	m_layoutsMips = std::max(mipLevels, 1u); // todo - use effective mip count
-	m_layoutsDepth = std::max(depth, 1u);
+	m_layoutsDepth = std::max(depth, 1u) * (hasViewLayer ? 2 : 1);
 	if (Is3DTexture())
 		m_layouts.resize(m_layoutsMips, VK_IMAGE_LAYOUT_UNDEFINED); // one per mip
 	else

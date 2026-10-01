@@ -97,7 +97,7 @@ extern uint64 _shaderBaseHash_vs;
 extern uint64 _shaderBaseHash_gs;
 extern uint64 _shaderBaseHash_ps;
 
-void LatteShader_GetDecompilerOptions(struct LatteDecompilerOptions& options, LatteConst::ShaderType shaderType, bool geometryShaderEnabled);
+void LatteShader_GetDecompilerOptions(struct LatteDecompilerOptions& options, LatteConst::ShaderType shaderType, bool geometryShaderEnabled, uint64 baseHash);
 LatteDecompilerShader* LatteShader_CreateShaderFromDecompilerOutput(LatteDecompilerOutput_t& decompilerOutput, uint64 baseHash, bool calculateAuxHash, uint64 optionalAuxHash, uint32* contextRegister);
 
 void LatteShader_CreateRendererShader(LatteDecompilerShader* shader, bool compileAsync);

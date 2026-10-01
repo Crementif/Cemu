@@ -20,34 +20,42 @@ namespace LatteDecompiler
 		auto shader = decompilerContext->shader;
 		auto shaderType = decompilerContext->shader->shaderType;
 		auto shaderSrc = decompilerContext->shaderSource;
+		const bool viewArrays = rendererType == RendererAPI::Vulkan && decompilerContext->options->viewArrays;
+		const sint32 viewCount = viewArrays ? 2 : 1;
+		auto emitUniformArray = [&](const char* name, uint32 size) {
+			if (viewArrays)
+				shaderSrc->addFmt("uniform ivec4 {}Views[2][{}];" _CRLF "#define {} {}Views[VIEW_INDEX & uf_viewMask]" _CRLF, name, size, name, name);
+			else
+				shaderSrc->addFmt("uniform ivec4 {}[{}];" _CRLF, name, size);
+		};
 		if (decompilerContext->shader->uniformMode == LATTE_DECOMPILER_UNIFORM_MODE_REMAPPED)
 		{
 			// uniform registers or buffers are accessed statically with predictable offsets
 			// this allows us to remap the used entries into a more compact array
 			if (shaderType == LatteConst::ShaderType::Vertex)
-				shaderSrc->addFmt("uniform ivec4 uf_remappedVS[{}];" _CRLF, (sint32)shader->list_remappedUniformEntries.size());
+				emitUniformArray("uf_remappedVS", (uint32)shader->list_remappedUniformEntries.size());
 			else if (shaderType == LatteConst::ShaderType::Pixel)
-				shaderSrc->addFmt("uniform ivec4 uf_remappedPS[{}];" _CRLF, (sint32)shader->list_remappedUniformEntries.size());
+				emitUniformArray("uf_remappedPS", (uint32)shader->list_remappedUniformEntries.size());
 			else if (shaderType == LatteConst::ShaderType::Geometry)
-				shaderSrc->addFmt("uniform ivec4 uf_remappedGS[{}];" _CRLF, (sint32)shader->list_remappedUniformEntries.size());
+				emitUniformArray("uf_remappedGS", (uint32)shader->list_remappedUniformEntries.size());
 			else
 				debugBreakpoint();
 			uniformOffsets.offset_remapped = uniformCurrentOffset;
-			uniformCurrentOffset += 16 * shader->list_remappedUniformEntries.size();
+			uniformCurrentOffset += 16 * shader->list_remappedUniformEntries.size() * viewCount;
 		}
 		else if (decompilerContext->shader->uniformMode == LATTE_DECOMPILER_UNIFORM_MODE_FULL_CFILE)
 		{
 			uint32 cfileSize = decompilerContext->analyzer.uniformRegisterAccessTracker.DetermineSize(decompilerContext->shaderBaseHash, 256);
 			// full or partial uniform register file has to be present
 			if (shaderType == LatteConst::ShaderType::Vertex)
-				shaderSrc->addFmt("uniform ivec4 uf_uniformRegisterVS[{}];" _CRLF, cfileSize);
+				emitUniformArray("uf_uniformRegisterVS", cfileSize);
 			else if (shaderType == LatteConst::ShaderType::Pixel)
-				shaderSrc->addFmt("uniform ivec4 uf_uniformRegisterPS[{}];" _CRLF, cfileSize);
+				emitUniformArray("uf_uniformRegisterPS", cfileSize);
 			else if (shaderType == LatteConst::ShaderType::Geometry)
-				shaderSrc->addFmt("uniform ivec4 uf_uniformRegisterGS[{}];" _CRLF, cfileSize);
+				emitUniformArray("uf_uniformRegisterGS", cfileSize);
 			uniformOffsets.offset_uniformRegister = uniformCurrentOffset;
 			uniformOffsets.count_uniformRegister = cfileSize;
-			uniformCurrentOffset += 16 * cfileSize;
+			uniformCurrentOffset += 16 * cfileSize * viewCount;
 		}
 		// special uniforms
 		bool hasAnyViewportScaleDisabled =
@@ -151,6 +159,14 @@ namespace LatteDecompiler
 			}
 		}
 
+		if (viewArrays && decompilerContext->hasUniformVarBlock)
+		{
+			uniformCurrentOffset = (uniformCurrentOffset + 3)&~3;
+			shaderSrc->add("uniform int uf_viewMask;" _CRLF);
+			uniformOffsets.offset_viewMask = uniformCurrentOffset;
+			uniformCurrentOffset += 4;
+		}
+
 		uniformOffsets.offset_endOfBlock = uniformCurrentOffset;
 		if (rendererType == RendererAPI::Vulkan)
 		{
@@ -177,8 +193,21 @@ namespace LatteDecompiler
 
 				shaderSrc->addFmt("uniform {}{}" _CRLF, _getShaderUniformBlockInterfaceName(decompilerContext->shaderType), i);
 				shaderSrc->add("{" _CRLF);
-				shaderSrc->addFmt("vec4 {}{}[{}];" _CRLF, _getShaderUniformBlockVariableName(decompilerContext->shaderType), i, decompilerContext->analyzer.uniformBufferAccessTracker[i].DetermineSize(decompilerContext->shaderBaseHash, LATTE_GLSL_DYNAMIC_UNIFORM_BLOCK_SIZE));
-				shaderSrc->add("};" _CRLF _CRLF);
+				const char* blockName = _getShaderUniformBlockVariableName(decompilerContext->shaderType);
+				sint32 blockSize = decompilerContext->analyzer.uniformBufferAccessTracker[i].DetermineSize(decompilerContext->shaderBaseHash, LATTE_GLSL_DYNAMIC_UNIFORM_BLOCK_SIZE);
+				// both copies need to fit in one binding
+				if (decompilerContext->options->viewArrays && blockSize * 2 <= LATTE_GLSL_DYNAMIC_UNIFORM_BLOCK_SIZE)
+				{
+					shaderSrc->addFmt("vec4 {}{}Views[2][{}];" _CRLF, blockName, i, blockSize);
+					shaderSrc->add("};" _CRLF _CRLF);
+					shaderSrc->addFmt("#define {}{} {}{}Views[VIEW_INDEX & (uf_viewMask >> {})]" _CRLF, blockName, i, blockName, i, i + 1);
+					decompilerContext->shader->viewArrayBufferMask |= (1 << i);
+				}
+				else
+				{
+					shaderSrc->addFmt("vec4 {}{}[{}];" _CRLF, blockName, i, blockSize);
+					shaderSrc->add("};" _CRLF _CRLF);
+				}
 				shaderSrc->add(_CRLF);
 			}
 		}
@@ -244,7 +273,10 @@ namespace LatteDecompiler
 			if (shaderContext->shader->textureUsesDepthCompare[i])
 				src->add("Shadow"); // shadow sampler
 
-			src->addFmt(" {}{};", _getTextureUnitVariablePrefixName(shaderContext->shaderType), i);
+			if (shaderContext->options->viewArrays)
+				src->addFmt(" {0}{1}Views[2];" _CRLF "#define {0}{1} {0}{1}Views[VIEW_INDEX]", _getTextureUnitVariablePrefixName(shaderContext->shaderType), i);
+			else
+				src->addFmt(" {}{};", _getTextureUnitVariablePrefixName(shaderContext->shaderType), i);
 			
 			src->add(_CRLF);
 		}
@@ -568,6 +600,7 @@ namespace LatteDecompiler
 
 	void emitHeader(LatteDecompilerShaderContext* decompilerContext)
 	{
+		decompilerContext->shader->hasViewArrays = decompilerContext->options->viewArrays;
 		const bool dump_shaders_enabled = ActiveSettings::DumpShadersEnabled();
 		if(dump_shaders_enabled)
 			decompilerContext->shaderSource->add("// start of shader inputs/outputs, predetermined by Cemu. Do not touch" _CRLF);

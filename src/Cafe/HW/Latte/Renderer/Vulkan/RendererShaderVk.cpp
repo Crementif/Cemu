@@ -1,6 +1,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "config/ActiveSettings.h"
 #include "config/CemuConfig.h"
 #include "util/helpers/ConcurrentQueue.h"
@@ -437,7 +438,7 @@ void RendererShaderVk::ShaderCacheLoading_begin(uint64 cacheTitleId)
 		s_spirvCache = nullptr;
 	}
 	uint32 spirvCacheMagic = GeneratePrecompiledCacheId();
-	const std::string cacheFilename = fmt::format("{:016x}_spirv.bin", cacheTitleId);
+	const std::string cacheFilename = LatteView_UsesMultiview(false) ? fmt::format("{:016x}_spirv_multiview.bin", cacheTitleId) : fmt::format("{:016x}_spirv.bin", cacheTitleId);
 	const fs::path cachePath = ActiveSettings::GetCachePath("shaderCache/precompiled/{}", cacheFilename);
 	s_spirvCache = FileCache::Open(cachePath, true, spirvCacheMagic);
 	if (s_spirvCache == nullptr)

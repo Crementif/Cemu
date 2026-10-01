@@ -100,6 +100,7 @@ public:
 	virtual void renderTarget_setScissor(sint32 scissorX, sint32 scissorY, sint32 scissorWidth, sint32 scissorHeight) = 0;
 
 	virtual LatteCachedFBO* rendertarget_createCachedFBO(uint64 key) = 0;
+	virtual LatteCachedFBO* rendertarget_createMultiviewCachedFBO(uint32 viewMask) { return nullptr; }
 	virtual void rendertarget_deleteCachedFBO(LatteCachedFBO* fbo) = 0;
 	virtual void rendertarget_bindFramebufferObject(LatteCachedFBO* cfbo) = 0;
 

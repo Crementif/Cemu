@@ -146,6 +146,7 @@ struct CachedPipeline
 	ShaderHash gsHash;
 	ShaderHash psHash;
 
+	uint32 viewMask{};
 	Latte::GPUCompactedRegisterState gpuState;
 };
 
@@ -167,7 +168,7 @@ void __getDepthBufferVkFormat(const LatteContextRegister& lcr, VkFormat& dbForma
 }
 
 // create placeholder renderpass for cached pipeline
-VKRObjectRenderPass* __CreateTemporaryRenderPass(const LatteDecompilerShader* pixelShader, const LatteContextRegister& lcr)
+VKRObjectRenderPass* __CreateTemporaryRenderPass(const LatteDecompilerShader* pixelShader, const LatteContextRegister& lcr, uint32 viewMask)
 {
 	VKRObjectRenderPass::AttachmentInfo_t attachmentInfo;
 
@@ -205,7 +206,7 @@ VKRObjectRenderPass* __CreateTemporaryRenderPass(const LatteDecompilerShader* pi
 		attachmentInfo.depthAttachment.isPresent = false;
 	}
 
-	return new VKRObjectRenderPass(attachmentInfo);
+	return new VKRObjectRenderPass(attachmentInfo, Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS, viewMask);
 }
 
 void VulkanPipelineStableCache::LoadPipelineFromCache(std::span<uint8> fileData)
@@ -270,7 +271,7 @@ void VulkanPipelineStableCache::LoadPipelineFromCache(std::span<uint8> fileData)
 		cemu_assert_debug(false);
 		return;
 	}
-	auto renderPass = __CreateTemporaryRenderPass(pixelShader, *lcr);
+	auto renderPass = __CreateTemporaryRenderPass(pixelShader, *lcr, cachedPipeline->viewMask);
 	// create pipeline info
 	m_pipelineIsCachedLock.lock();
 	PipelineInfo* pipelineInfo = new PipelineInfo(0, 0, vertexShader->compatibleFetchShader, vertexShader, pixelShader, geometryShader);
@@ -312,7 +313,7 @@ bool VulkanPipelineStableCache::HasPipelineCached(uint64 baseHash, uint64 pipeli
 
 ConcurrentQueue<CachedPipeline*> g_pipelineCachingQueue;
 
-void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 pipelineStateHash)
+void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 pipelineStateHash, uint32 viewMask)
 {
 	m_pipelineIsCached.emplace(baseHash, pipelineStateHash);
 	if (!m_pipelineCacheStoreThread)
@@ -334,6 +335,7 @@ void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 p
 		job->gsHash.set(gs->baseHash, gs->auxHash);
 	if (ps)
 		job->psHash.set(ps->baseHash, ps->auxHash);
+	job->viewMask = viewMask;
 	Latte::StoreGPURegisterState(LatteGPUState.contextNew, job->gpuState);
 	// queue job
 	g_pipelineCachingQueue.push(job);
@@ -341,7 +343,8 @@ void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 p
 
 bool VulkanPipelineStableCache::SerializePipeline(MemStreamWriter& memWriter, CachedPipeline& cachedPipeline)
 {
-	memWriter.writeBE<uint8>(0x01); // version
+	// only use version 2 when needed, so upstream Cemu can still read the cache
+	memWriter.writeBE<uint8>(cachedPipeline.viewMask != 0 ? 0x02 : 0x01);
 	uint8 presentMask = 0;
 	if (cachedPipeline.vsHash.isPresent)
 		presentMask |= 1;
@@ -365,6 +368,8 @@ bool VulkanPipelineStableCache::SerializePipeline(MemStreamWriter& memWriter, Ca
 		memWriter.writeBE<uint64>(cachedPipeline.psHash.baseHash);
 		memWriter.writeBE<uint64>(cachedPipeline.psHash.auxHash);
 	}
+	if (cachedPipeline.viewMask != 0)
+		memWriter.writeBE<uint32>(cachedPipeline.viewMask);
 	Latte::SerializeRegisterState(cachedPipeline.gpuState, memWriter);
 	return true;
 }
@@ -372,7 +377,8 @@ bool VulkanPipelineStableCache::SerializePipeline(MemStreamWriter& memWriter, Ca
 bool VulkanPipelineStableCache::DeserializePipeline(MemStreamReader& memReader, CachedPipeline& cachedPipeline)
 {
 	// version
-	if (memReader.readBE<uint8>() != 1)
+	const uint8 version = memReader.readBE<uint8>();
+	if (version != 1 && version != 2)
 	{
 		cemuLog_log(LogType::Force, "Cached Vulkan pipeline corrupted or has unknown version");
 		return false;
@@ -397,6 +403,7 @@ bool VulkanPipelineStableCache::DeserializePipeline(MemStreamReader& memReader, 
 		uint64 auxHash = memReader.readBE<uint64>();
 		cachedPipeline.psHash.set(baseHash, auxHash);
 	}
+	cachedPipeline.viewMask = version >= 2 ? memReader.readBE<uint32>() : 0;
 	// deserialize GPU state
 	if (!Latte::DeserializeRegisterState(cachedPipeline.gpuState, memReader))
 	{

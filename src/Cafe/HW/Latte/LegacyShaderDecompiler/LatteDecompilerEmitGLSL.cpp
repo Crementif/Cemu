@@ -3866,6 +3866,12 @@ void LatteDecompiler_emitGLSLShader(LatteDecompilerShaderContext* shaderContext,
 
 	if (shaderContext->analyzer.hasStreamoutWrite || shaderContext->options->usesGeometryShader )
 		src->add("#extension GL_ARB_enhanced_layouts : enable" _CRLF);
+	if (shaderContext->options->viewArrays)
+	{
+		// the view index can be past 1 since the right layer comes after all slices
+		src->add("#extension GL_EXT_multiview : enable" _CRLF);
+		src->add("#define VIEW_INDEX min(gl_ViewIndex, 1)" _CRLF);
+	}
 	
 	// debug info
 	src->addFmt("// shader {:016x}" _CRLF, shaderContext->shaderBaseHash);

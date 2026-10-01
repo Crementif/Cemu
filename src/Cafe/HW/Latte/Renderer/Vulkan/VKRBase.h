@@ -190,11 +190,12 @@ public:
 	}
 
 public:
-	VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint32 colorAttachmentCount = Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS);
+	VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint32 colorAttachmentCount = Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS, uint32 viewMask = 0);
 	~VKRObjectRenderPass() override;
 	VkRenderPass m_renderPass{ VK_NULL_HANDLE };
 	VkFormat m_colorAttachmentFormat[Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS];
 	VkFormat m_depthAttachmentFormat;
+	uint32 m_viewMask{};
 	uint64 m_hashForPipeline; // helper var. Holds hash of all the renderpass creation parameters (mainly the formats) that affect the pipeline state
 };
 

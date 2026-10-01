@@ -205,8 +205,12 @@ struct LatteDecompilerShader
 		float ufCurrentValueFragCoordScale[2];
 		sint32 loc_verticesPerInstance;
 		sint32 loc_streamoutBufferBase[LATTE_NUM_STREAMOUT_BUFFER];
+		sint32 loc_viewMask;
 		uint32 uniformRangeSize; // entire size of uniform variable block
 	}uniform{ 0 };
+	// uf_viewMask bit 0 is for the uniform registers, bit 1 + index for uniform buffers
+	bool hasViewArrays{ false };
+	uint16 viewArrayBufferMask{ 0 };
 	// fast access
 	struct _RemappedUniformBufferGroup
 	{
@@ -234,6 +238,7 @@ struct LatteDecompilerOutputUniformOffsets
 	sint32 offset_texScale[LATTE_NUM_MAX_TEX_UNITS];
 	sint32 offset_verticesPerInstance{-1};
 	sint32 offset_streamoutBufferBase[LATTE_NUM_STREAMOUT_BUFFER]{ -1, -1, -1, -1 };
+	sint32 offset_viewMask{-1};
 	sint32 offset_endOfBlock; // stores size of uniform variable block
 
 	LatteDecompilerOutputUniformOffsets()
@@ -265,6 +270,8 @@ struct LatteDecompilerOptions
 	{
 		bool hasRoundingModeRTEFloat32{ false };
 	}spirvInstrinsics;
+	// second copy of uniforms and textures for the right view in multiview draws
+	bool viewArrays{ false };
 };
 
 struct LatteDecompilerOutput_t

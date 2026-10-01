@@ -160,6 +160,7 @@ public:
 	const std::vector<CustomShader>& GetCustomShaders() const { return m_custom_shaders; }
 
 	static const std::string* FindCustomShaderSource(uint64 shaderBaseHash, uint64 shaderAuxHash, GP_SHADER_TYPE type, bool isVulkanRenderer, bool isMetalRenderer);
+	static bool HasCustomShaderForBaseHash(uint64 shaderBaseHash, GP_SHADER_TYPE type);
 
 	const std::string& GetOutputShaderSource() const { return m_output_shader_source; }
 	const std::string& GetDownscalingShaderSource() const { return m_downscaling_shader_source; }

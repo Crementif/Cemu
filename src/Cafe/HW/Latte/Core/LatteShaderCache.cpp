@@ -855,7 +855,7 @@ bool LatteShaderCache_readSeparableVertexShader(MemStreamReader& streamReader, u
 	LatteFetchShader* fetchShader = LatteShaderRecompiler_createFetchShader(fsHash, lcr->GetRawView(), (uint32*)fetchShaderData.data(), fetchShaderData.size());
 	// determine decompiler options
 	LatteDecompilerOptions options;
-	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Vertex, usesGeometryShader);
+	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Vertex, usesGeometryShader, shaderBaseHash);
 	// decompile vertex shader
 	LatteDecompilerOutput_t decompilerOutput{};
 	LatteDecompiler_DecompileVertexShader(shaderBaseHash, lcr->GetRawView(), vertexShaderData.data(), vertexShaderData.size(), fetchShader, options, &decompilerOutput);
@@ -897,7 +897,7 @@ bool LatteShaderCache_readSeparableGeometryShader(MemStreamReader& streamReader,
 	LatteShader_UpdatePSInputs(lcr->GetRawView());
 	// determine decompiler options
 	LatteDecompilerOptions options;
-	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Geometry, true);
+	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Geometry, true, shaderBaseHash);
 	// decompile geometry shader
 	LatteDecompilerOutput_t decompilerOutput{};
 	LatteDecompiler_DecompileGeometryShader(shaderBaseHash, lcr->GetRawView(), geometryShaderData.data(), geometryShaderData.size(), geometryCopyShaderData.data(), geometryCopyShaderData.size(), vsRingParameterCount, options, &decompilerOutput);
@@ -935,7 +935,7 @@ bool LatteShaderCache_readSeparablePixelShader(MemStreamReader& streamReader, ui
 	LatteShader_UpdatePSInputs(lcr->GetRawView());
 	// determine decompiler options
 	LatteDecompilerOptions options;
-	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Pixel, usesGeometryShader);
+	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Pixel, usesGeometryShader, shaderBaseHash);
 	// decompile pixel shader
 	LatteDecompilerOutput_t decompilerOutput{};
 	LatteDecompiler_DecompilePixelShader(shaderBaseHash, lcr->GetRawView(), pixelShaderData.data(), pixelShaderData.size(), options, &decompilerOutput);

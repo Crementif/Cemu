@@ -112,6 +112,8 @@ namespace HostModule
 	void TakeSubmitSemaphores(std::vector<SubmitSemaphore>& waits, std::vector<SubmitSemaphore>& signals);
 #endif
 
+	void UseMultiviewStereo();
+
 	void RegisterExternalModules();
 	void Startup();
 	void BeforeConfigLoad();

@@ -4,6 +4,7 @@
 #include "Cafe/HW/MMU/MMU.h"
 #include "config/ActiveSettings.h"
 #include "WindowSystem.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 
 #ifdef ENABLE_VULKAN
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
@@ -88,6 +89,11 @@ namespace HostModule
 	void RegisterBundledGraphicPacks(const fs::path& directory)
 	{
 		s_bundledGraphicPackDirectories.emplace_back(directory);
+	}
+
+	void UseMultiviewStereo()
+	{
+		LatteView_SetMultiviewRequested(true);
 	}
 
 	const std::vector<std::pair<fs::path, PackOrder>>& GetGraphicPacks()

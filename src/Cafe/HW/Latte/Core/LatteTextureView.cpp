@@ -17,7 +17,7 @@ LatteTextureView::LatteTextureView(LatteTexture* texture, sint32 firstMip, sint3
 	{
 		texture->views.emplace_back(this);
 		// siblings are only found through their texture
-		if (!texture->isViewSibling)
+		if (!texture->isViewSibling && firstSlice + sliceCount <= texture->depth)
 			LatteTextureViewLookupCache::Add(this);
 	}
 }

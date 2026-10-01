@@ -2,6 +2,7 @@
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LattePerformanceMonitor.h"
 #include "Cafe/HW/Latte/Core/LatteTexture.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Cafe/HW/Latte/LatteAddrLib/LatteAddrLib.h"
@@ -1067,6 +1068,18 @@ LatteTextureView* LatteTexture_CreateMapping(MPTR physAddr, MPTR physMipAddr, si
 		}
 		else if(viewCompatibility == VIEW_COMPATIBLE)
 		{
+			// textures first created for sampling need a view layer once they get rendered to
+			static bool s_isRecreatingForViewLayer = false;
+			if (!s_isRecreatingForViewLayer && !tex->hasViewLayer && !tex->viewLayerUnavailable && LatteView_CreatesViewLayer(tex->dim, tex->depth))
+			{
+				s_isRecreatingForViewLayer = true;
+				LatteTexture_RecreateTextureWithDifferentMipSliceCount(tex, tex->physMipAddress, tex->mipLevels, tex->depth);
+				LatteTextureView* view = LatteTexture_CreateMapping(physAddr, physMipAddr, width, height, depth, pitch, tileMode, swizzle, firstMip, numMip, firstSlice, numSlice, format, dimBase, dimView, isDepth);
+				s_isRecreatingForViewLayer = false;
+				if (view && !view->baseTexture->hasViewLayer)
+					view->baseTexture->viewLayerUnavailable = true;
+				return view;
+			}
 			LatteTextureView* view = tex->GetOrCreateView(dimView, format, relativeMipIndex + firstMip, numMip, relativeSliceIndex + firstSlice, numSlice);
 			if (relativeMipIndex != 0 || relativeSliceIndex != 0)
 			{
