@@ -8,6 +8,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/CachedFBOVk.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VKRMemoryManager.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/SwapchainInfoVk.h"
+#include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRendererView.h"
 #include "Cafe/HostModule/HostModule.h"
 #include "util/math/vector2.h"
 #include "util/helpers/Semaphore.h"
@@ -964,6 +965,11 @@ public:
 	void HostModule_DispatchEvent(const HostModule::HostEvent& event, LatteTexture* texture, uint32 sliceIndex);
 	void HostModule_DeliverScanBuffer(LatteTextureView* textureView, bool padView);
 
+	// two-view rendering
+	void view_setStereo(bool isStereo);
+	void view_notifyDescriptorSetDeleted(VkDescriptorSetInfo* dsInfo);
+	void view_notifySiblingDeleted(LatteTexture* texture);
+
 private:
 	static VkResult HostModule_CreateInstance(const VkInstanceCreateInfo& createInfo, VkInstance& instance, bool& createdByModule);
 	static VkPhysicalDevice HostModule_SelectPhysicalDevice(VkInstance instance);
@@ -972,6 +978,21 @@ private:
 	void HostModule_NotifyDeviceDestroying();
 	void HostModule_ResetCommandBufferState();
 	void HostModule_AttachSubmitSemaphores(VkSubmitInfo& submitInfo, VkTimelineSemaphoreSubmitInfo& timelineInfo);
+
+	VulkanViewState m_view;
+
+	void view_prepareRightPass(CachedFBOVk* leftFBO);
+	void view_flushRightPass();
+	void view_restoreBindings(Renderer::INDEX_TYPE hostIndexType);
+	void view_recordDraw(PipelineInfo* pipeline_info, VkDescriptorSetInfo* vertexDS, VkDescriptorSetInfo* pixelDS, VkDescriptorSetInfo* geometryDS, bool isIndexed, uint32 count, uint32 instanceCount, uint32 baseVertex, uint32 baseInstance);
+	void view_recordBarrier(VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkDependencyFlags dependencyFlags);
+	CachedFBOVk* view_getRightFBO(CachedFBOVk* leftFBO);
+	LatteTextureView* view_getSiblingView(LatteTextureView* view, bool forAttachment);
+	VkDescriptorSetInfo* view_getRightDescriptorSet(PipelineInfo* pipeline_info, LatteDecompilerShader* shader, VkDescriptorSetInfo* leftDS);
+	void view_bindRightStage(PipelineInfo* pipeline_info, uint32 stageIndex, VkDescriptorSetInfo* rightDS, LatteDecompilerShader* shader, const float* leftUniformData);
+	void view_notifyFBODeleted(LatteCachedFBO* fbo);
+	bool uniformData_buildRightView(LatteDecompilerShader* shader, const float* leftUniformData, float* rightUniformData);
+	void occlusionQuery_suspendFragments(bool suspend);
 
 	// debug
 	void debug_genericBarrier();

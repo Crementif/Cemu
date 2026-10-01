@@ -8,6 +8,7 @@
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/FetchShader.h"
 #include "Cafe/HW/Latte/Core/LatteIndices.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/OS/libs/gx2/GX2.h"
 #include "imgui/imgui_impl_vulkan.h"
 #include "Cafe/GameProfile/GameProfile.h"
@@ -314,6 +315,15 @@ void VulkanRenderer::indexData_uploadIndexMemory(IndexAllocation& allocation)
 float s_vkUniformDataVS[512 * 4];
 float s_vkUniformDataPS[512 * 4];
 float s_vkUniformDataGS[512 * 4];
+
+float* VulkanRenderer_GetUniformData(uint32 shaderStageIndex)
+{
+	if (shaderStageIndex == VulkanRendererConst::SHADER_STAGE_INDEX_VERTEX)
+		return s_vkUniformDataVS;
+	if (shaderStageIndex == VulkanRendererConst::SHADER_STAGE_INDEX_FRAGMENT)
+		return s_vkUniformDataPS;
+	return s_vkUniformDataGS;
+}
 
 uint32 VulkanRenderer::uniformData_uploadUniformDataBufferGetOffset(std::span<uint8> data)
 {
@@ -1077,6 +1087,8 @@ void VulkanRenderer::sync_inputTexturesChanged(bool withinFeedbackLoopRenderPass
 
 		VkDependencyFlags dependencyFlags = withinFeedbackLoopRenderPass ? VK_DEPENDENCY_BY_REGION_BIT : 0;
 		vkCmdPipelineBarrier(m_state.currentCommandBuffer, srcStage, dstStage, dependencyFlags, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+		if (m_view.isRecording && m_state.activeRenderpassFBO)
+			view_recordBarrier(srcStage, dstStage, memoryBarrier.srcAccessMask, memoryBarrier.dstAccessMask, dependencyFlags);
 
 		performanceMonitor.vk.numDrawBarriersPerFrame.increment();
 
@@ -1167,6 +1179,7 @@ void VulkanRenderer::draw_updateVkBlendConstants()
 {
 	uint32* blendColorConstant = LatteGPUState.contextRegister + Latte::REGADDR::CB_BLEND_RED;
 	vkCmdSetBlendConstants(m_state.currentCommandBuffer, (const float*)blendColorConstant);
+	memcpy(m_view.blendConstants, blendColorConstant, sizeof(m_view.blendConstants));
 }
 
 void VulkanRenderer::draw_updateDepthBias(bool forceUpdate)
@@ -1192,6 +1205,9 @@ void VulkanRenderer::draw_updateDepthBias(bool forceUpdate)
 	frontScale /= 16.0f;
 
 	vkCmdSetDepthBias(m_state.currentCommandBuffer, frontOffset, offsetClamp, frontScale);
+	m_view.depthBias[0] = frontOffset;
+	m_view.depthBias[1] = offsetClamp;
+	m_view.depthBias[2] = frontScale;
 }
 
 bool s_syncOnNextDraw = false;
@@ -1229,6 +1245,7 @@ void VulkanRenderer::draw_setRenderPass()
 	if (m_state.descriptorSetsChanged)
 		sync_inputTexturesChanged();
 
+	view_prepareRightPass(fboVk);
 	sync_RenderPassLoadTextures(fboVk);
 
 	if (m_featureControl.deviceExtensions.dynamic_rendering)
@@ -1274,6 +1291,7 @@ void VulkanRenderer::draw_endRenderPass()
 		vkCmdEndRenderPass(m_state.currentCommandBuffer);
 	sync_RenderPassStoreTextures(m_state.activeRenderpassFBO);
 	m_state.activeRenderpassFBO = nullptr;
+	view_flushRightPass();
 }
 
 // Defined in the Common renderer
@@ -1419,6 +1437,9 @@ void VulkanRenderer::draw_execute_first(uint32 baseVertex, uint32 baseInstance, 
 			else
 				cemu_assert(false);
 			vkCmdBindIndexBuffer(m_state.currentCommandBuffer, indexReservation->vkBuffer, indexBufferOffset, vkType);
+			m_view.indexBuffer = indexReservation->vkBuffer;
+			m_view.indexBufferOffset = indexBufferOffset;
+			m_view.indexType = vkType;
 		}
 	}
 
@@ -1462,6 +1483,8 @@ void VulkanRenderer::draw_execute_first(uint32 baseVertex, uint32 baseInstance, 
 	m_state.descriptorSetsChanged = true;
 
 	draw_setRenderPass();
+	if (m_view.restoreBindings)
+		view_restoreBindings(hostIndexType);
 
 	if (m_state.currentPipeline != vkObjPipeline->GetPipeline())
 	{
@@ -1519,6 +1542,8 @@ void VulkanRenderer::draw_execute_first(uint32 baseVertex, uint32 baseInstance, 
 		vkCmdDrawIndexed(m_state.currentCommandBuffer, hostIndexCount, instanceCount, 0, baseVertex, baseInstance);
 	else
 		vkCmdDraw(m_state.currentCommandBuffer, count, instanceCount, baseVertex, baseInstance);
+	if (m_view.isRecording)
+		view_recordDraw(pipeline_info, vertexDS, pixelDS, geometryDS, hostIndexType != INDEX_TYPE::NONE, hostIndexType != INDEX_TYPE::NONE ? hostIndexCount : count, instanceCount, baseVertex, baseInstance);
 	LatteStreamout_FinishDrawcall(m_useHostMemoryForCache);
 }
 
@@ -1587,6 +1612,9 @@ void VulkanRenderer::draw_execute_continued(uint32 baseVertex, uint32 baseInstan
 			else
 				cemu_assert(false);
 			vkCmdBindIndexBuffer(m_state.currentCommandBuffer, indexReservation->vkBuffer, indexBufferOffset, vkType);
+			m_view.indexBuffer = indexReservation->vkBuffer;
+			m_view.indexBufferOffset = indexBufferOffset;
+			m_view.indexType = vkType;
 		}
 	}
 
@@ -1656,6 +1684,11 @@ void VulkanRenderer::draw_execute_continued(uint32 baseVertex, uint32 baseInstan
 	}
 
 	draw_setRenderPass();
+	if (m_view.restoreBindings)
+	{
+		view_restoreBindings(hostIndexType);
+		stageUniformModifiedMask = 0x7;
+	}
 
 	if (m_state.currentPipeline != vkObjPipeline->GetPipeline())
 	{
@@ -1742,6 +1775,8 @@ void VulkanRenderer::draw_execute_continued(uint32 baseVertex, uint32 baseInstan
 		vkCmdDrawIndexed(m_state.currentCommandBuffer, hostIndexCount, instanceCount, 0, baseVertex, baseInstance);
 	else
 		vkCmdDraw(m_state.currentCommandBuffer, count, instanceCount, baseVertex, baseInstance);
+	if (m_view.isRecording)
+		view_recordDraw(pipeline_info, vertexDS, pixelDS, geometryDS, hostIndexType != INDEX_TYPE::NONE, hostIndexType != INDEX_TYPE::NONE ? hostIndexCount : count, instanceCount, baseVertex, baseInstance);
 
 	LatteStreamout_FinishDrawcall(m_useHostMemoryForCache);
 }

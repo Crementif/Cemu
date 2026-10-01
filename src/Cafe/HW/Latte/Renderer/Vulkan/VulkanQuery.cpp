@@ -210,3 +210,23 @@ void VulkanRenderer::occlusionQuery_notifyBeginCommandBuffer()
 		if (it->m_hasActiveQuery)
 			it->beginFragment();
 }
+
+// right view draws shouldn't count towards the open query
+void VulkanRenderer::occlusionQuery_suspendFragments(bool suspend)
+{
+	if (suspend)
+	{
+		m_view.suspendedQueries.clear();
+		for (auto& query : m_occlusionQueries.list_currentlyActiveQueries)
+		{
+			if (!query->m_hasActiveFragment)
+				continue;
+			query->endFragment();
+			m_view.suspendedQueries.emplace_back(query);
+		}
+		return;
+	}
+	for (auto& query : m_view.suspendedQueries)
+		query->beginFragment();
+	m_view.suspendedQueries.clear();
+}

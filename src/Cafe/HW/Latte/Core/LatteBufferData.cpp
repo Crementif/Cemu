@@ -4,6 +4,7 @@
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/LegacyShaderDecompiler/LatteDecompiler.h"
 #include "Cafe/HW/Latte/Core/FetchShader.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/GameProfile/GameProfile.h"
 
 #include "Cafe/HW/Latte/Core/LatteBufferCache.h"
@@ -171,11 +172,13 @@ bool LatteBufferCache_syncGPUUniformBuffers(LatteDecompilerShader* shader, const
 		if (physicalAddr == MPTR_NULL) [[unlikely]]
 		{
 			g_renderer->buffer_bindUniformBuffer(shaderType, i, 0, 0);
+			LatteView_SyncRightUniformBuffer(shaderType, i, MPTR_NULL, 0, 0);
 			continue;
 		}
 		uniformSize = std::min<uint32>(uniformSize, buf.size);
 		uint32 bindOffset = LatteBufferCache_retrieveDataInCache(physicalAddr, uniformSize);
 		g_renderer->buffer_bindUniformBuffer(shaderType, i, bindOffset, uniformSize);
+		LatteView_SyncRightUniformBuffer(shaderType, i, physicalAddr, uniformSize, bindOffset);
 	}
 	return hasChange;
 }

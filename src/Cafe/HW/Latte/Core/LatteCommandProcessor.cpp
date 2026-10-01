@@ -11,6 +11,7 @@
 #include "Cafe/HW/Latte/Core/LattePM4.h"
 #include "Cafe/HW/Latte/Core/LatteSurfaceCopy.h"
 #include "Cafe/HW/Latte/Core/LatteHostEvent.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 
 #include "Cafe/OS/libs/coreinit/coreinit_Time.h"
 #include "Cafe/OS/libs/TCL/TCL.h" // TCL currently handles the GPU command ringbuffer
@@ -1099,6 +1100,7 @@ void LatteCP_processCommandBuffer_continuousDrawPass(DrawPassContext& drawPassCt
 							drawPassCtx.MarkPSAluConstantsDirty();
 						// todo - we could further optimize by tracking the min/max range of modified ALU constants and only uploading the affected range. Possibly not worth it
 					});
+					LatteView_itSetAluConst(cmdData, nWords);
 					break;
 				}
 				case IT_SET_CTL_CONST:
@@ -1173,6 +1175,11 @@ void LatteCP_processCommandBuffer_continuousDrawPass(DrawPassContext& drawPassCt
 					}
 					break;
 				}
+				case IT_HLE_VIEW_MEM_WRITE:
+				{
+					LatteView_itViewMemWrite(cmdData, nWords);
+					break;
+				}
 				default:
 					// unallowed command for fast draw
 					drawPassCtx.endDrawPass();
@@ -1231,6 +1238,7 @@ void LatteCP_processCommandBuffer(DrawPassContext& drawPassCtx)
 				case IT_SET_ALU_CONST:
 				{
 					LatteCP_itSetRegistersGeneric<LATTE_REG_BASE_ALU_CONST>(cmdData, nWords);
+					LatteView_itSetAluConst(cmdData, nWords);
 				}
 				break;
 				case IT_SET_CTL_CONST:
@@ -1350,6 +1358,7 @@ void LatteCP_processCommandBuffer(DrawPassContext& drawPassCtx)
 				case IT_LOAD_ALU_CONST:
 				{
 					LatteCP_itLoadReg(cmdData, nWords, LATTE_REG_BASE_ALU_CONST);
+					LatteView_itLoadAluConst(cmdData, nWords);
 					break;
 				}
 				case IT_LOAD_LOOP_CONST:
@@ -1451,6 +1460,16 @@ void LatteCP_processCommandBuffer(DrawPassContext& drawPassCtx)
 					LatteHostEvent_itViewAluConst(cmdData, nWords, isVertexStage);
 					break;
 				}
+				case IT_HLE_VIEW_SCOPE:
+				{
+					LatteView_itViewScope(cmdData, nWords);
+					break;
+				}
+				case IT_HLE_VIEW_MEM_WRITE:
+				{
+					LatteView_itViewMemWrite(cmdData, nWords);
+					break;
+				}
 				default:
 					debug_printf("Unhandled IT %02x\n", itCode);
 					cemu_assert_debug(false);
@@ -1535,6 +1554,7 @@ void LatteCP_ProcessRingbuffer()
 			case IT_SET_ALU_CONST:
 			{
 				LatteCP_itSetRegistersGeneric<LATTE_REG_BASE_ALU_CONST>(cmd, nWords);
+				LatteView_itSetAluConst(cmd, nWords);
 				timerRecheck += CP_TIMER_RECHECK / 512;
 				break;
 			}
@@ -1649,6 +1669,7 @@ void LatteCP_ProcessRingbuffer()
 			case IT_LOAD_ALU_CONST:
 			{
 				LatteCP_itLoadReg(cmd, nWords, LATTE_REG_BASE_ALU_CONST);
+				LatteView_itLoadAluConst(cmd, nWords);
 				timerRecheck += CP_TIMER_RECHECK / 64;
 				break;
 			}
@@ -1775,6 +1796,16 @@ void LatteCP_ProcessRingbuffer()
 			{
 				bool isVertexStage;
 				LatteHostEvent_itViewAluConst(cmd, nWords, isVertexStage);
+				break;
+			}
+			case IT_HLE_VIEW_SCOPE:
+			{
+				LatteView_itViewScope(cmd, nWords);
+				break;
+			}
+			case IT_HLE_VIEW_MEM_WRITE:
+			{
+				LatteView_itViewMemWrite(cmd, nWords);
 				break;
 			}
 			default:

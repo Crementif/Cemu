@@ -1,6 +1,7 @@
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteDraw.h"
 #include "Cafe/HW/Latte/Core/LatteTexture.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Common/cpu_features.h"
 
@@ -325,6 +326,7 @@ bool LatteTC_IsTextureDataOverwritten(LatteTexture* texture)
 
 void LatteTexture_Delete(LatteTexture* texture)
 {
+	LatteView_DeleteSibling(texture);
 	LatteTC_UnregisterTexture(texture);
 	LatteMRT::NotifyTextureDeletion(texture);
 	LatteTextureReadback_NotifyTextureDeletion(texture);
@@ -353,6 +355,8 @@ void LatteTexture_Delete(LatteTexture* texture)
  */
 bool LatteTC_CleanupCheckTexture(LatteTexture* texture, uint32 currentTick)
 {
+	if (texture->isViewSibling)
+		return false;
 	uint32 currentFrameCount = LatteGPUState.frameCounter;
 	uint32 ticksSinceLastAccess = currentTick - texture->lastAccessTick;
 	uint32 framesSinceLastAccess = currentFrameCount - texture->lastAccessFrameCount;
@@ -451,11 +455,13 @@ std::vector<LatteTexture*> LatteTC_GetDeleteableTextures()
 
 void LatteTC_UnloadAllTextures()
 {
-	std::vector<LatteTexture*> allTexturesCopy = LatteTexture::GetAllTextures();
-	for (auto& itr : allTexturesCopy)
+	std::vector<LatteTexture*> allTexturesCopy;
+	for (auto& itr : LatteTexture::GetAllTextures())
 	{
-		if(itr)
-			LatteTexture_Delete(itr);
+		if (itr && !itr->isViewSibling)
+			allTexturesCopy.emplace_back(itr);
 	}
+	for (auto& itr : allTexturesCopy)
+		LatteTexture_Delete(itr);
 	LatteRenderTarget_unloadAll();
 }

@@ -1,4 +1,5 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureVk.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
@@ -3424,6 +3425,7 @@ void VulkanRenderer::rendertarget_deleteCachedFBO(LatteCachedFBO* cfbo)
 {
 	if (cfbo == m_state.activeFBO)
 		m_state.activeFBO = nullptr;
+	view_notifyFBODeleted(cfbo);
 }
 
 void VulkanRenderer::rendertarget_bindFramebufferObject(LatteCachedFBO* cfbo)
@@ -3480,6 +3482,7 @@ void VulkanRenderer::ProcessDestructionQueue()
 
 VkDescriptorSetInfo::~VkDescriptorSetInfo()
 {
+	VulkanRenderer::GetInstance()->view_notifyDescriptorSetDeleted(this);
 	for (auto& it : list_referencedViews)
 		it->RemoveDescriptorSetReference(this);
 	// unregister
@@ -3504,12 +3507,16 @@ void VulkanRenderer::texture_clearSlice(LatteTexture* hostTexture, sint32 sliceI
 	else
 	{
 		cemu_assert_debug(vkTexture->dim != Latte::E_DIM::DIM_3D);
+		if (LatteTexture* sibling = LatteView_OnTextureClear(hostTexture, sliceIndex, mipIndex))
+			ClearColorImage((LatteTextureVk*)sibling, sliceIndex, mipIndex, { 0,0,0,0 }, ((LatteTextureVk*)sibling)->GetDefaultLayout());
 		ClearColorImage(vkTexture, sliceIndex, mipIndex, { 0,0,0,0 }, vkTexture->GetDefaultLayout());
 	}
 }
 
 void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 sliceIndex, sint32 mipIndex, float r, float g, float b, float a)
 {
+	if (LatteTexture* sibling = LatteView_OnTextureClear(hostTexture, sliceIndex, mipIndex))
+		texture_clearColorSlice(sibling, sliceIndex, mipIndex, r, g, b, a);
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 	if(vkTexture->dim == Latte::E_DIM::DIM_3D)
 	{
@@ -3521,6 +3528,8 @@ void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 s
 void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 sliceIndex, sint32 mipIndex, bool clearDepth, bool clearStencil, float depthValue, uint32 stencilValue)
 {
 	draw_endRenderPass(); // vkCmdClearDepthStencilImage must not be inside renderpass
+	if (LatteTexture* sibling = LatteView_OnTextureClear(hostTexture, sliceIndex, mipIndex))
+		texture_clearDepthSlice(sibling, sliceIndex, mipIndex, clearDepth, clearStencil, depthValue, stencilValue);
 
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 
@@ -3561,6 +3570,7 @@ void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 s
 
 void VulkanRenderer::texture_loadSlice(LatteTexture* hostTexture, sint32 width, sint32 height, sint32 depth, void* pixelData, sint32 sliceIndex, sint32 mipIndex, uint32 compressedImageSize)
 {
+	LatteView_SetSiblingValid(hostTexture, sliceIndex, mipIndex, false);
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 	auto vkImageObj = vkTexture->GetImageObj();
 	vkImageObj->flagForCurrentCommandBuffer();
@@ -3679,6 +3689,11 @@ void VulkanRenderer::texture_copyImageSubData(LatteTexture* src, sint32 srcMip, 
 	LatteTextureVk* dstVk = static_cast<LatteTextureVk*>(dst);
 
 	draw_endRenderPass(); // vkCmdCopyImage must be called outside of a renderpass
+
+	LatteTexture* srcSibling;
+	LatteTexture* dstSibling;
+	if (LatteView_OnTextureCopy(src, srcSlice, srcMip, dst, dstSlice, dstMip, srcSibling, dstSibling))
+		texture_copyImageSubData(srcSibling, srcMip, effectiveSrcX, effectiveSrcY, srcSlice, dstSibling, dstMip, effectiveDstX, effectiveDstY, dstSlice, effectiveCopyWidth, effectiveCopyHeight, srcDepth);
 
 	VKRObjectTexture* srcVkObj = srcVk->GetImageObj();
 	VKRObjectTexture* dstVkObj = dstVk->GetImageObj();
@@ -3839,6 +3854,8 @@ void VulkanRenderer::buffer_bindVertexBuffers(std::span<BindBufferParam> binding
 		m_state.currentVertexBinding[binding.index].offset = binding.bindOffset;
 		VkDeviceSize bindOffset = binding.bindOffset;
 		vkCmdBindVertexBuffers(m_state.currentCommandBuffer, binding.index, 1, &buffer, &bindOffset);
+		m_view.vertexBinding[binding.index].buffer = buffer;
+		m_view.vertexBinding[binding.index].offset = bindOffset;
 	}
 }
 
@@ -3849,6 +3866,8 @@ void VulkanRenderer::buffer_bindVertexStrideWorkaroundBuffer(VkBuffer fixedBuffe
 	VkBuffer attrBuffer = fixedBuffer;
 	VkDeviceSize attrOffset = offset;
 	vkCmdBindVertexBuffers(m_state.currentCommandBuffer, bufferIndex, 1, &attrBuffer, &attrOffset);
+	m_view.vertexBinding[bufferIndex].buffer = attrBuffer;
+	m_view.vertexBinding[bufferIndex].offset = attrOffset;
 }
 
 std::pair<VkBuffer, uint32> VulkanRenderer::buffer_genStrideWorkaroundVertexBuffer(MPTR buffer, uint32 size, uint32 oldStride)

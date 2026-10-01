@@ -200,6 +200,10 @@ public:
 	std::vector<struct LatteTextureRelation*> list_compatibleRelations; // list of other data-compatible textures that share the same memory ranges
 	// index in global texture list
 	size_t globalListIndex;
+	// two-view rendering
+	LatteTexture* viewSibling{}; // right view copy
+	bool isViewSibling{};
+	std::vector<bool> viewSiblingValid; // per slice/mip, invalid means it's the same as this texture
 };
 
 struct LatteTextureDefinition // todo - actually use this in LatteTexture class

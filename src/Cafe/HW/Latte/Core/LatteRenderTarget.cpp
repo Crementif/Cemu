@@ -7,6 +7,7 @@
 #include "Cafe/HW/Latte/Core/LatteBufferCache.h"
 #include "Cafe/HW/Latte/Core/LatteTexture.h"
 #include "Cafe/HW/Latte/Core/LatteCachedFBO.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Cafe/HW/Latte/Core/LattePerformanceMonitor.h"
 #include "util/highresolutiontimer/HighResolutionTimer.h"
@@ -127,6 +128,19 @@ void LatteMRT::DeleteCachedFBO(LatteCachedFBO* cfbo)
 	}
 	g_renderer->rendertarget_deleteCachedFBO(cfbo);
 	delete cfbo;
+}
+
+LatteCachedFBO* LatteMRT::CreateDetachedCachedFBO(LatteTextureView* const* colorViews, LatteTextureView* depthView, bool hasStencil)
+{
+	// the FBO constructor reads the current attachments
+	auto previousRendertargets = sLatteCurrentRendertargets;
+	for (sint32 i = 0; i < 8; i++)
+		sLatteCurrentRendertargets.colorBuffer[i].view = colorViews[i];
+	sLatteCurrentRendertargets.depthBuffer.view = depthView;
+	sLatteCurrentRendertargets.depthBuffer.hasStencil = hasStencil;
+	LatteCachedFBO* cfbo = CreateCachedFBO(0);
+	sLatteCurrentRendertargets = previousRendertargets;
+	return cfbo;
 }
 
 LatteCachedFBO* g_emptyFBO = nullptr;
@@ -736,6 +750,8 @@ void LatteRenderTarget_trackUpdates()
 		LatteTextureView* texView = sLatteRenderTargetState.rtUpdateList[i];
 		LatteTexture* baseTexture = texView->baseTexture;
 		LatteTexture_TrackTextureGPUWrite(baseTexture, texView->firstSlice, texView->firstMip, eventCounter);
+		if (!LatteView_IsStereo())
+			LatteView_SetSiblingValid(baseTexture, texView->firstSlice, texView->firstMip, false);
 		// texture readback
 		if (baseTexture->enableReadback)
 		{
