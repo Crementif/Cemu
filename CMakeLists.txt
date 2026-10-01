@@ -23,7 +23,7 @@ if (ENABLE_VCPKG)
 	# check if vcpkg is shallow and unshallow it if necessary
 	execute_process(
 	COMMAND git rev-parse --is-shallow-repository
-	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/dependencies/vcpkg
+	WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/dependencies/vcpkg
 	OUTPUT_VARIABLE is_vcpkg_shallow
 	OUTPUT_STRIP_TRAILING_WHITESPACE
     )
@@ -32,7 +32,7 @@ if (ENABLE_VCPKG)
 		message(STATUS "vcpkg is shallow. Unshallowing it now...")
 		execute_process(
 			COMMAND git fetch --unshallow
-			WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dependencies/vcpkg"
+			WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/dependencies/vcpkg"
 			RESULT_VARIABLE result
 			OUTPUT_VARIABLE output
 		)
@@ -211,7 +211,7 @@ if (ENABLE_OPENGL)
 endif()
 
 if (ENABLE_METAL)
-    include_directories(${CMAKE_SOURCE_DIR}/dependencies/metal-cpp)
+    include_directories(${Cemu_SOURCE_DIR}/dependencies/metal-cpp)
 
     add_compile_definitions(ENABLE_METAL)
 endif()
