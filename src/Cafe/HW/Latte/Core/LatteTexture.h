@@ -201,7 +201,9 @@ public:
 	// index in global texture list
 	size_t globalListIndex;
 	// two-view rendering
-	LatteTexture* viewSibling{}; // right view copy
+	LatteTexture* viewSibling{}; // right view copy, or the texture itself if it has a view layer
+	bool hasViewLayer{}; // extra layers past the guest slices for the right view
+	bool viewLayerUnavailable{};
 	bool isViewSibling{};
 	std::vector<bool> viewSiblingValid; // per slice/mip, invalid means it's the same as this texture
 };

@@ -1195,6 +1195,16 @@ const std::string* GraphicPack2::FindCustomShaderSource(uint64 shaderBaseHash, u
 	return nullptr;
 }
 
+bool GraphicPack2::HasCustomShaderForBaseHash(uint64 shaderBaseHash, GP_SHADER_TYPE type)
+{
+	for (const auto& gp : GraphicPack2::GetActiveGraphicPacks())
+	{
+		if (std::any_of(gp->m_custom_shaders.begin(), gp->m_custom_shaders.end(), [shaderBaseHash, type](const auto& s) { return s.shader_base_hash == shaderBaseHash && s.type == type; }))
+			return true;
+	}
+	return false;
+}
+
 std::unordered_map<std::string, std::vector<GraphicPack2::PresetPtr>> GraphicPack2::GetCategorizedPresets(std::vector<std::string>& order) const
 {
 	order.clear();

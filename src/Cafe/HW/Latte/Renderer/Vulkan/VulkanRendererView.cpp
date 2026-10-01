@@ -11,6 +11,7 @@
 
 float* VulkanRenderer_GetUniformData(uint32 shaderStageIndex);
 
+
 void VulkanRenderer::view_setStereo(bool isStereo)
 {
 	draw_endRenderPass();
@@ -23,7 +24,7 @@ LatteTextureView* VulkanRenderer::view_getSiblingView(LatteTextureView* view, bo
 	LatteTexture* sibling = forAttachment ? LatteView_GetOrCreateSibling(texture) : texture->viewSibling;
 	if (!sibling)
 		return nullptr;
-	return sibling->GetOrCreateView(view->dim, view->format, view->firstMip, view->numMip, view->firstSlice, view->numSlice);
+	return sibling->GetOrCreateView(view->dim, view->format, view->firstMip, view->numMip, LatteView_GetSiblingSlice(texture, view->firstSlice), view->numSlice);
 }
 
 CachedFBOVk* VulkanRenderer::view_getRightFBO(CachedFBOVk* leftFBO)
@@ -68,21 +69,30 @@ CachedFBOVk* VulkanRenderer::view_getRightFBO(CachedFBOVk* leftFBO)
 	return rightFBO;
 }
 
-void VulkanRenderer::view_notifyFBODeleted(LatteCachedFBO* fbo)
+static void LatteView_eraseFBO(std::unordered_map<CachedFBOVk*, CachedFBOVk*>& fbos, LatteCachedFBO* fbo)
 {
-	if (m_view.rightFBOs.empty())
+	if (fbos.empty())
 		return;
-	if (fbo == m_view.rightFBO)
-		m_view.rightFBO = nullptr;
-	auto it = m_view.rightFBOs.find((CachedFBOVk*)fbo);
-	if (it != m_view.rightFBOs.end())
+	auto it = fbos.find((CachedFBOVk*)fbo);
+	if (it != fbos.end())
 	{
-		CachedFBOVk* rightFBO = it->second;
-		m_view.rightFBOs.erase(it);
-		LatteMRT::DeleteCachedFBO(rightFBO);
+		CachedFBOVk* derivedFBO = it->second;
+		fbos.erase(it);
+		if (derivedFBO)
+			LatteMRT::DeleteCachedFBO(derivedFBO);
 		return;
 	}
-	std::erase_if(m_view.rightFBOs, [fbo](const auto& entry) { return entry.second == fbo; });
+	std::erase_if(fbos, [fbo](const auto& entry) { return entry.second == fbo; });
+}
+
+void VulkanRenderer::view_notifyFBODeleted(LatteCachedFBO* fbo)
+{
+	if (fbo == m_view.rightFBO)
+		m_view.rightFBO = nullptr;
+	if (fbo == m_view.guestFBO)
+		m_view.guestFBO = nullptr;
+	LatteView_eraseFBO(m_view.rightFBOs, fbo);
+	LatteView_eraseFBO(m_view.multiviewFBOs, fbo);
 }
 
 void VulkanRenderer::view_notifySiblingDeleted(LatteTexture* texture)
@@ -90,25 +100,48 @@ void VulkanRenderer::view_notifySiblingDeleted(LatteTexture* texture)
 	std::erase_if(m_view.pendingSeeds, [texture](const auto& seed) { return seed.first == texture; });
 }
 
+static void LatteView_eraseDescriptorSet(std::unordered_map<VkDescriptorSetInfo*, VulkanViewState::RightDescriptorSet>& sets, std::unordered_set<VkDescriptorSetInfo*>& knownSets, VkDescriptorSetInfo* dsInfo)
+{
+	if (sets.empty())
+		return;
+	if (sets.erase(dsInfo) == 0 && knownSets.count(dsInfo) == 0)
+		return;
+	if (knownSets.erase(dsInfo) != 0)
+		std::erase_if(sets, [dsInfo](const auto& entry) { return entry.second.set == dsInfo; });
+}
+
 void VulkanRenderer::view_notifyDescriptorSetDeleted(VkDescriptorSetInfo* dsInfo)
 {
-	if (m_view.rightDescriptorSets.empty())
-		return;
-	if (m_view.rightDescriptorSets.erase(dsInfo) == 0 && m_view.knownRightDescriptorSets.count(dsInfo) == 0)
-		return;
-	if (m_view.knownRightDescriptorSets.erase(dsInfo) != 0)
-		std::erase_if(m_view.rightDescriptorSets, [dsInfo](const auto& entry) { return entry.second.set == dsInfo; });
+	LatteView_eraseDescriptorSet(m_view.rightDescriptorSets, m_view.knownRightDescriptorSets, dsInfo);
+	LatteView_eraseDescriptorSet(m_view.pairDescriptorSets, m_view.knownPairDescriptorSets, dsInfo);
 }
 
 void VulkanRenderer::view_prepareRightPass(CachedFBOVk* leftFBO)
 {
 	m_view.isRecording = false;
-	if (!m_view.isStereo)
+	m_view.hasNoRightPass = false;
+	if (!m_view.isStereo || !m_view.drawNeedsRight)
 		return;
+	if (m_view.isMultiviewFBO && leftFBO != m_view.guestFBO)
+	{
+		for (sint32 i = 0; i < 8; i++)
+		{
+			LatteTextureView* view = m_view.guestFBO->colorBuffer[i].texture;
+			if (view && !LatteView_IsSiblingValid(view->baseTexture, view->firstSlice, view->firstMip))
+				LatteView_SeedSibling(view->baseTexture, view->firstSlice, view->firstMip);
+		}
+		if (LatteTextureView* view = m_view.guestFBO->depthBuffer.texture)
+		{
+			if (!LatteView_IsSiblingValid(view->baseTexture, view->firstSlice, view->firstMip))
+				LatteView_SeedSibling(view->baseTexture, view->firstSlice, view->firstMip);
+		}
+		return;
+	}
 	CachedFBOVk* rightFBO = view_getRightFBO(leftFBO);
 	if (!rightFBO)
 	{
 		cemuLog_logOnce(LogType::Force, "LatteView: A render target has no right-view sibling, the right view skips its draws");
+		m_view.hasNoRightPass = true;
 		return;
 	}
 	m_view.rightFBO = rightFBO;
@@ -148,10 +181,9 @@ void VulkanRenderer::view_prepareRightPass(CachedFBOVk* leftFBO)
 	m_view.isRecording = true;
 }
 
-bool VulkanRenderer::uniformData_buildRightView(LatteDecompilerShader* shader, const float* leftUniformData, float* rightUniformData)
+template<typename TWrite>
+static void LatteView_forEachRightVec4(LatteDecompilerShader* shader, TWrite&& write)
 {
-	if (shader->resourceMapping.uniformVarsBufferBindingPoint < 0)
-		return false;
 	uint32 aluConstBase = 0;
 	uint32 uniformBlockRegBase = mmSQ_PS_UNIFORM_BLOCK_START;
 	if (shader->shaderType == LatteConst::ShaderType::Vertex)
@@ -164,24 +196,15 @@ bool VulkanRenderer::uniformData_buildRightView(LatteDecompilerShader* shader, c
 	bool hasRightAluConst = shader->shaderType != LatteConst::ShaderType::Geometry && LatteView_HasRightAluConst(shader->shaderType == LatteConst::ShaderType::Vertex);
 	const uint32* rightAluConst = LatteView_GetRightAluConst();
 
-	bool isModified = false;
-	auto beginModify = [&]() {
-		if (!isModified)
-			memcpy(rightUniformData, leftUniformData, shader->uniform.uniformRangeSize);
-		isModified = true;
-	};
 	if (shader->uniform.loc_remapped >= 0)
 	{
-		uint8* remappedData = (uint8*)rightUniformData + shader->uniform.loc_remapped;
 		if (hasRightAluConst)
 		{
 			for (auto& it : shader->list_remappedUniformEntries_register)
 			{
 				uint32 registerIndex = aluConstBase + it.indexOffset / 4;
-				if (!LatteView_IsRightAluConstVec4(registerIndex / 4))
-					continue;
-				beginModify();
-				memcpy(remappedData + it.mappedIndexOffset, rightAluConst + registerIndex, 16);
+				if (LatteView_IsRightAluConstVec4(registerIndex / 4))
+					write(false, it.mappedIndexOffset, rightAluConst + registerIndex);
 			}
 		}
 		if (LatteView_HasRightWords())
@@ -193,28 +216,80 @@ bool VulkanRenderer::uniformData_buildRightView(LatteDecompilerShader* shader, c
 				const uint8* rightBlock = LatteView_GetRightUniformBlock(physicalAddr, size);
 				if (!rightBlock)
 					continue;
-				beginModify();
 				for (auto& it : bufferGroup.entries)
 				{
 					if (it.indexOffset + 16 <= size)
-						memcpy(remappedData + it.mappedIndexOffset, rightBlock + it.indexOffset, 16);
+						write(false, it.mappedIndexOffset, rightBlock + it.indexOffset);
 				}
 			}
 		}
 	}
 	if (shader->uniform.loc_uniformRegister >= 0 && hasRightAluConst)
 	{
-		uint8* registerData = (uint8*)rightUniformData + shader->uniform.loc_uniformRegister;
 		for (sint32 i = 0; i < shader->uniform.count_uniformRegister; i++)
 		{
 			uint32 vec4Index = aluConstBase / 4 + i;
-			if (!LatteView_IsRightAluConstVec4(vec4Index))
-				continue;
-			beginModify();
-			memcpy(registerData + i * 16, rightAluConst + vec4Index * 4, 16);
+			if (LatteView_IsRightAluConstVec4(vec4Index))
+				write(true, i * 16, rightAluConst + vec4Index * 4);
 		}
 	}
+}
+
+bool VulkanRenderer::uniformData_buildRightView(LatteDecompilerShader* shader, const float* leftUniformData, float* rightUniformData)
+{
+	if (shader->resourceMapping.uniformVarsBufferBindingPoint < 0)
+		return false;
+	bool isModified = false;
+	LatteView_forEachRightVec4(shader, [&](bool isRegister, uint32 offset, const void* data) {
+		if (!isModified)
+			memcpy(rightUniformData, leftUniformData, shader->uniform.uniformRangeSize);
+		isModified = true;
+		memcpy((uint8*)rightUniformData + (isRegister ? shader->uniform.loc_uniformRegister : shader->uniform.loc_remapped) + offset, data, 16);
+	});
 	return isModified;
+}
+
+bool VulkanRenderer::uniformData_updateViewArrays(LatteDecompilerShader* shader, float* uniformData)
+{
+	if (shader->uniform.loc_viewMask < 0)
+		return false;
+	uint8* data = (uint8*)uniformData;
+	uint32 viewMask = 0;
+	if (LatteView_IsStereo() && LatteView_IsMultiviewRequested())
+	{
+		uint32 remappedSize = (uint32)shader->list_remappedUniformEntries.size() * 16;
+		uint32 registerSize = (uint32)shader->uniform.count_uniformRegister * 16;
+		LatteView_forEachRightVec4(shader, [&](bool isRegister, uint32 offset, const void* src) {
+			uint8* left = data + (isRegister ? shader->uniform.loc_uniformRegister : shader->uniform.loc_remapped);
+			uint32 size = isRegister ? registerSize : remappedSize;
+			if ((viewMask & 1) == 0)
+			{
+				if (shader->uniform.loc_remapped >= 0)
+					memcpy(data + shader->uniform.loc_remapped + remappedSize, data + shader->uniform.loc_remapped, remappedSize);
+				if (shader->uniform.loc_uniformRegister >= 0)
+					memcpy(data + shader->uniform.loc_uniformRegister + registerSize, data + shader->uniform.loc_uniformRegister, registerSize);
+				viewMask |= 1;
+			}
+			memcpy(left + size + offset, src, 16);
+		});
+		if (shader->viewArrayBufferMask != 0 && LatteView_HasRightWords())
+		{
+			uint32 uniformBlockRegBase = shader->shaderType == LatteConst::ShaderType::Vertex ? mmSQ_VTX_UNIFORM_BLOCK_START : shader->shaderType == LatteConst::ShaderType::Pixel ? mmSQ_PS_UNIFORM_BLOCK_START : mmSQ_GS_UNIFORM_BLOCK_START;
+			for (const auto& buf : shader->list_quickBufferList)
+			{
+				if ((shader->viewArrayBufferMask & (1 << buf.index)) == 0)
+					continue;
+				MPTR physicalAddr = LatteGPUState.contextRegister[uniformBlockRegBase + buf.index * 7 + 0];
+				uint32 size = std::min<uint32>(LatteGPUState.contextRegister[uniformBlockRegBase + buf.index * 7 + 1] + 1, buf.size);
+				if (physicalAddr != MPTR_NULL && LatteView_GetUniformBufferPair(physicalAddr, size, buf.size) != MPTR_NULL)
+					viewMask |= 2 << buf.index;
+			}
+		}
+	}
+	uint32* storedMask = (uint32*)(data + shader->uniform.loc_viewMask);
+	bool changed = *storedMask != viewMask;
+	*storedMask = viewMask;
+	return changed;
 }
 
 VkDescriptorSetInfo* VulkanRenderer::view_getRightDescriptorSet(PipelineInfo* pipeline_info, LatteDecompilerShader* shader, VkDescriptorSetInfo* leftDS)
@@ -282,7 +357,7 @@ VkDescriptorSetInfo* VulkanRenderer::view_getRightDescriptorSet(PipelineInfo* pi
 
 void VulkanRenderer::view_bindRightStage(PipelineInfo* pipeline_info, uint32 stageIndex, VkDescriptorSetInfo* rightDS, LatteDecompilerShader* shader, const float* leftUniformData)
 {
-	static float s_rightUniformData[512 * 4];
+	static float s_rightUniformData[1024 * 4];
 	if (!rightDS)
 		return;
 	rightDS->m_vkObjDescriptorSet->flagForCurrentCommandBuffer();
@@ -546,4 +621,214 @@ void VulkanRenderer::view_restoreBindings(Renderer::INDEX_TYPE hostIndexType)
 				vkCmdBindVertexBuffers(m_state.currentCommandBuffer, bufferGroup.attributeBufferIndex, 1, &binding.buffer, &binding.offset);
 		}
 	}
+}
+
+void VulkanRenderer::view_selectFBO(bool& isFirst)
+{
+	if (!m_view.guestFBO)
+		return;
+	CachedFBOVk* fbo = m_view.guestFBO;
+	if (m_view.isStereo && m_view.drawNeedsRight && LatteView_IsMultiviewRequested() && view_canDrawMultiview())
+	{
+		if (CachedFBOVk* multiviewFBO = view_getMultiviewFBO(m_view.guestFBO))
+			fbo = multiviewFBO;
+	}
+	m_view.isMultiviewFBO = fbo != m_view.guestFBO;
+	if (fbo == m_state.activeFBO)
+		return;
+	m_state.activeFBO = fbo;
+	isFirst = true;
+}
+
+// skip draws where the right view would end up the same as the left
+bool VulkanRenderer::view_drawNeedsRight()
+{
+	if (!m_view.guestFBO)
+		return false;
+	auto hasValidSibling = [](LatteTextureView* view) {
+		return view && LatteView_IsSiblingValid(view->baseTexture, view->firstSlice, view->firstMip);
+	};
+	for (sint32 i = 0; i < 8; i++)
+	{
+		if (hasValidSibling(m_view.guestFBO->colorBuffer[i].texture))
+			return true;
+	}
+	if (hasValidSibling(m_view.guestFBO->depthBuffer.texture))
+		return true;
+	LatteDecompilerShader* shaders[3] = { LatteSHRC_GetActiveVertexShader(), LatteSHRC_GetActivePixelShader(), LatteSHRC_GetActiveGeometryShader() };
+	for (LatteDecompilerShader* shader : shaders)
+	{
+		if (!shader)
+			continue;
+		bool hasRightUniforms = false;
+		LatteView_forEachRightVec4(shader, [&](bool, uint32, const void*) { hasRightUniforms = true; });
+		if (hasRightUniforms)
+			return true;
+		uint32 uniformBlockRegBase = shader->shaderType == LatteConst::ShaderType::Vertex ? mmSQ_VTX_UNIFORM_BLOCK_START : shader->shaderType == LatteConst::ShaderType::Pixel ? mmSQ_PS_UNIFORM_BLOCK_START : mmSQ_GS_UNIFORM_BLOCK_START;
+		if (shader->uniformMode == LATTE_DECOMPILER_UNIFORM_MODE_FULL_CBANK && LatteView_HasRightWords())
+		{
+			for (const auto& buf : shader->list_quickBufferList)
+			{
+				MPTR physicalAddr = LatteGPUState.contextRegister[uniformBlockRegBase + buf.index * 7 + 0];
+				uint32 size = std::min<uint32>(LatteGPUState.contextRegister[uniformBlockRegBase + buf.index * 7 + 1] + 1, buf.size);
+				if (LatteView_GetRightUniformBlock(physicalAddr, size))
+					return true;
+			}
+		}
+		LatteTextureViewVk** boundTextures = m_state.boundTexture + (shader->shaderType == LatteConst::ShaderType::Vertex ? LATTE_CEMU_VS_TEX_UNIT_BASE : shader->shaderType == LatteConst::ShaderType::Pixel ? LATTE_CEMU_PS_TEX_UNIT_BASE : LATTE_CEMU_GS_TEX_UNIT_BASE);
+		for (sint32 i = 0; i < shader->resourceMapping.getTextureCount(); i++)
+		{
+			LatteTextureViewVk* view = boundTextures[shader->resourceMapping.getRelativeTextureUnitFromRelativeBindingPoint(i)];
+			if (view && LatteView_HasValidSiblingInRange(view->baseTexture, view->firstSlice, view->numSlice, view->firstMip, view->numMip))
+				return true;
+		}
+	}
+	return false;
+}
+
+bool VulkanRenderer::view_canDrawMultiview()
+{
+	if (LatteGPUState.contextRegister[mmVGT_STRMOUT_EN] != 0)
+		return false;
+	// multiview passes need an index per view
+	if (occlusionQuery_hasActiveFragment())
+		return false;
+	LatteDecompilerShader* shaders[3] = { LatteSHRC_GetActiveVertexShader(), LatteSHRC_GetActivePixelShader(), LatteSHRC_GetActiveGeometryShader() };
+	if (!shaders[0] || (shaders[2] && !m_featureControl.multiview.geometryShader))
+		return false;
+	if (LatteGPUState.contextNew.VGT_PRIMITIVE_TYPE.get_PRIMITIVE_MODE() == Latte::LATTE_VGT_PRIMITIVE_TYPE::E_PRIMITIVE_TYPE::RECTS && !m_featureControl.multiview.geometryShader)
+		return false;
+	for (LatteDecompilerShader* shader : shaders)
+	{
+		if (!shader)
+			continue;
+		if (!shader->hasViewArrays)
+			return false;
+		if (shader->uniformMode != LATTE_DECOMPILER_UNIFORM_MODE_FULL_CBANK || !LatteView_HasRightWords())
+			continue;
+		uint32 uniformBlockRegBase = shader->shaderType == LatteConst::ShaderType::Vertex ? mmSQ_VTX_UNIFORM_BLOCK_START : shader->shaderType == LatteConst::ShaderType::Pixel ? mmSQ_PS_UNIFORM_BLOCK_START : mmSQ_GS_UNIFORM_BLOCK_START;
+		for (const auto& buf : shader->list_quickBufferList)
+		{
+			if (shader->viewArrayBufferMask & (1 << buf.index))
+				continue;
+			MPTR physicalAddr = LatteGPUState.contextRegister[uniformBlockRegBase + buf.index * 7 + 0];
+			uint32 size = std::min<uint32>(LatteGPUState.contextRegister[uniformBlockRegBase + buf.index * 7 + 1] + 1, buf.size);
+			if (LatteView_GetRightUniformBlock(physicalAddr, size))
+				return false;
+		}
+	}
+	return true;
+}
+
+CachedFBOVk* VulkanRenderer::view_getMultiviewFBO(CachedFBOVk* guestFBO)
+{
+	auto it = m_view.multiviewFBOs.find(guestFBO);
+	if (it != m_view.multiviewFBOs.end())
+		return it->second;
+	sint32 spacing = 0;
+	auto getLayeredView = [&spacing](LatteTextureView* view) -> LatteTextureView* {
+		LatteTexture* texture = view->baseTexture;
+		if (spacing == 0)
+			spacing = texture->depth;
+		if (!texture->hasViewLayer || texture->depth != spacing || view->numMip != 1 || view->numSlice != 1)
+			return nullptr;
+		if (LatteView_GetOrCreateSibling(texture) != texture)
+			return nullptr;
+		return texture->GetOrCreateView(Latte::E_DIM::DIM_2D_ARRAY, view->format, view->firstMip, 1, view->firstSlice, spacing + 1);
+	};
+	CachedFBOVk* multiviewFBO = nullptr;
+	LatteTextureView* colorViews[8]{};
+	LatteTextureView* depthView = nullptr;
+	bool hasLayers = true;
+	for (sint32 i = 0; i < 8 && hasLayers; i++)
+	{
+		if (guestFBO->colorBuffer[i].texture)
+		{
+			colorViews[i] = getLayeredView(guestFBO->colorBuffer[i].texture);
+			hasLayers = colorViews[i] != nullptr;
+		}
+	}
+	if (hasLayers && guestFBO->depthBuffer.texture)
+	{
+		depthView = getLayeredView(guestFBO->depthBuffer.texture);
+		hasLayers = depthView != nullptr;
+	}
+	if (hasLayers)
+		multiviewFBO = (CachedFBOVk*)LatteMRT::CreateDetachedCachedFBO(colorViews, depthView, guestFBO->depthBuffer.hasStencil, 1u | (1u << spacing));
+	m_view.multiviewFBOs[guestFBO] = multiviewFBO;
+	return multiviewFBO;
+}
+
+LatteTextureViewVk* VulkanRenderer::view_getPairedTextureView(LatteTextureViewVk* view)
+{
+	LatteTexture* texture = view->baseTexture;
+	if (!LatteView_HasValidSiblingInRange(texture, view->firstSlice, view->numSlice, view->firstMip, view->numMip))
+		return nullptr;
+	return (LatteTextureViewVk*)view_getSiblingView(view, false);
+}
+
+VkDescriptorSetInfo* VulkanRenderer::view_getPairDescriptorSet(PipelineInfo* pipeline_info, LatteDecompilerShader* shader, VkDescriptorSetInfo* leftDS)
+{
+	if (!leftDS || !shader || !shader->hasViewArrays)
+		return leftDS;
+	LatteTextureViewVk** boundTextures = m_state.boundTexture;
+	switch (shader->shaderType)
+	{
+	case LatteConst::ShaderType::Vertex:
+		boundTextures += LATTE_CEMU_VS_TEX_UNIT_BASE;
+		break;
+	case LatteConst::ShaderType::Pixel:
+		boundTextures += LATTE_CEMU_PS_TEX_UNIT_BASE;
+		break;
+	case LatteConst::ShaderType::Geometry:
+		boundTextures += LATTE_CEMU_GS_TEX_UNIT_BASE;
+		break;
+	default:
+		UNREACHABLE;
+	}
+	const sint32 textureCount = shader->resourceMapping.getTextureCount();
+	bool usesSibling = false;
+	for (sint32 i = 0; i < textureCount && !usesSibling; i++)
+	{
+		LatteTextureViewVk* view = boundTextures[shader->resourceMapping.getRelativeTextureUnitFromRelativeBindingPoint(i)];
+		usesSibling = view && LatteView_HasValidSiblingInRange(view->baseTexture, view->firstSlice, view->numSlice, view->firstMip, view->numMip);
+	}
+	if (!usesSibling)
+		return leftDS;
+	uint32 siblingEpoch = LatteView_GetSiblingEpoch();
+	auto it = m_view.pairDescriptorSets.find(leftDS);
+	if (it != m_view.pairDescriptorSets.end() && it->second.siblingEpoch == siblingEpoch)
+	{
+		it->second.set->m_vkObjDescriptorSet->flagForCurrentCommandBuffer();
+		return it->second.set;
+	}
+	for (sint32 i = 0; i < textureCount; i++)
+	{
+		LatteTextureViewVk* view = boundTextures[shader->resourceMapping.getRelativeTextureUnitFromRelativeBindingPoint(i)];
+		if (!view || !LatteView_HasValidSiblingInRange(view->baseTexture, view->firstSlice, view->numSlice, view->firstMip, view->numMip))
+			continue;
+		LatteTexture* texture = view->baseTexture;
+		for (sint32 mip = view->firstMip; mip < std::min(view->firstMip + view->numMip, texture->mipLevels); mip++)
+		{
+			for (sint32 slice = view->firstSlice; slice < std::min(view->firstSlice + view->numSlice, texture->depth); slice++)
+			{
+				if (!LatteView_IsSiblingValid(texture, slice, mip))
+					LatteView_SeedSibling(texture, slice, mip);
+			}
+		}
+	}
+	m_view.buildPairDescriptorSet = true;
+	VkDescriptorSetInfo* pairDS = draw_getOrCreateDescriptorSet(pipeline_info, shader);
+	m_view.buildPairDescriptorSet = false;
+	m_view.pairDescriptorSets[leftDS] = { LatteView_GetSiblingEpoch(), pairDS };
+	m_view.knownPairDescriptorSets.emplace(pairDS);
+	pairDS->m_vkObjDescriptorSet->flagForCurrentCommandBuffer();
+	return pairDS;
+}
+
+void VulkanRenderer::view_preparePairDescriptorSets(PipelineInfo* pipeline_info, VkDescriptorSetInfo*& vertexDS, VkDescriptorSetInfo*& pixelDS, VkDescriptorSetInfo*& geometryDS)
+{
+	vertexDS = view_getPairDescriptorSet(pipeline_info, LatteSHRC_GetActiveVertexShader(), vertexDS);
+	pixelDS = view_getPairDescriptorSet(pipeline_info, LatteSHRC_GetActivePixelShader(), pixelDS);
+	geometryDS = view_getPairDescriptorSet(pipeline_info, LatteSHRC_GetActiveGeometryShader(), geometryDS);
 }

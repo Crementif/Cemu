@@ -290,11 +290,18 @@ void VulkanRenderer::GetDeviceFeatures()
 		prevStruct = &attachmentFeedbackLoopLayoutFeature;
 	}
 
+	VkPhysicalDeviceMultiviewFeatures multiviewFeature{};
+	multiviewFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
+	multiviewFeature.pNext = prevStruct;
+	prevStruct = &multiviewFeature;
+
 	VkPhysicalDeviceFeatures2 physicalDeviceFeatures2{};
 	physicalDeviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	physicalDeviceFeatures2.pNext = prevStruct;
 
 	vkGetPhysicalDeviceFeatures2(m_physicalDevice, &physicalDeviceFeatures2);
+	m_featureControl.multiview.supported = multiviewFeature.multiview && physicalDeviceFeatures2.features.shaderSampledImageArrayDynamicIndexing;
+	m_featureControl.multiview.geometryShader = m_featureControl.multiview.supported && multiviewFeature.multiviewGeometryShader;
 
 	cemuLog_log(LogType::Force, "Vulkan: present_wait extension: {}", (pwf.presentWait && pidf.presentId) ? "supported" : "unsupported");
 
@@ -308,6 +315,11 @@ void VulkanRenderer::GetDeviceFeatures()
 		prevStruct = &pfcp;
 	}
 
+	VkPhysicalDeviceMultiviewProperties multiviewProperties{};
+	multiviewProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES;
+	multiviewProperties.pNext = prevStruct;
+	prevStruct = &multiviewProperties;
+
 	VkPhysicalDeviceProperties2 prop2{};
 	prop2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	prop2.pNext = prevStruct;
@@ -319,6 +331,9 @@ void VulkanRenderer::GetDeviceFeatures()
 	m_featureControl.deviceExtensions.pipeline_creation_cache_control = pcc.pipelineCreationCacheControl;
 	m_featureControl.deviceExtensions.custom_border_color_without_format = m_featureControl.deviceExtensions.custom_border_color && bcf.customBorderColorWithoutFormat;
 	m_featureControl.shaderFloatControls.shaderRoundingModeRTEFloat32 = m_featureControl.deviceExtensions.shader_float_controls && pfcp.shaderRoundingModeRTEFloat32;
+	m_featureControl.multiview.maxViewCount = multiviewProperties.maxMultiviewViewCount;
+	m_featureControl.multiview.supported = m_featureControl.multiview.supported && multiviewProperties.maxMultiviewViewCount >= 2;
+	m_featureControl.multiview.geometryShader = m_featureControl.multiview.geometryShader && m_featureControl.multiview.supported;
 	if(!m_featureControl.shaderFloatControls.shaderRoundingModeRTEFloat32)
 		cemuLog_log(LogType::Force, "Shader round mode control not available on this device or driver. Some rendering issues might occur.");
 
@@ -759,6 +774,17 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 		attachmentFeedbackLoopDynamicStateFeature.pNext = deviceExtensionFeatures;
 		deviceExtensionFeatures = &attachmentFeedbackLoopDynamicStateFeature;
 		attachmentFeedbackLoopDynamicStateFeature.attachmentFeedbackLoopDynamicState = VK_TRUE;
+	}
+	// enable multiview for two-view rendering
+	VkPhysicalDeviceMultiviewFeatures multiviewFeature{};
+	if (m_featureControl.multiview.supported)
+	{
+		multiviewFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
+		multiviewFeature.pNext = deviceExtensionFeatures;
+		deviceExtensionFeatures = &multiviewFeature;
+		multiviewFeature.multiview = VK_TRUE;
+		multiviewFeature.multiviewGeometryShader = m_featureControl.multiview.geometryShader ? VK_TRUE : VK_FALSE;
+		deviceFeatures.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
 	}
 
 	std::vector<const char*> used_extensions;
@@ -3421,6 +3447,11 @@ LatteCachedFBO* VulkanRenderer::rendertarget_createCachedFBO(uint64 key)
 	return new CachedFBOVk(key, m_logicalDevice);
 }
 
+LatteCachedFBO* VulkanRenderer::rendertarget_createMultiviewCachedFBO(uint32 viewMask)
+{
+	return new CachedFBOVk(0, m_logicalDevice, viewMask);
+}
+
 void VulkanRenderer::rendertarget_deleteCachedFBO(LatteCachedFBO* cfbo)
 {
 	if (cfbo == m_state.activeFBO)
@@ -3431,6 +3462,8 @@ void VulkanRenderer::rendertarget_deleteCachedFBO(LatteCachedFBO* cfbo)
 void VulkanRenderer::rendertarget_bindFramebufferObject(LatteCachedFBO* cfbo)
 {
 	m_state.activeFBO = (CachedFBOVk*)cfbo;
+	m_view.guestFBO = (CachedFBOVk*)cfbo;
+	m_view.isMultiviewFBO = false;
 }
 
 void* VulkanRenderer::texture_acquireTextureUploadBuffer(uint32 size)
@@ -3508,7 +3541,7 @@ void VulkanRenderer::texture_clearSlice(LatteTexture* hostTexture, sint32 sliceI
 	{
 		cemu_assert_debug(vkTexture->dim != Latte::E_DIM::DIM_3D);
 		if (LatteTexture* sibling = LatteView_OnTextureClear(hostTexture, sliceIndex, mipIndex))
-			ClearColorImage((LatteTextureVk*)sibling, sliceIndex, mipIndex, { 0,0,0,0 }, ((LatteTextureVk*)sibling)->GetDefaultLayout());
+			ClearColorImage((LatteTextureVk*)sibling, LatteView_GetSiblingSlice(hostTexture, sliceIndex), mipIndex, { 0,0,0,0 }, ((LatteTextureVk*)sibling)->GetDefaultLayout());
 		ClearColorImage(vkTexture, sliceIndex, mipIndex, { 0,0,0,0 }, vkTexture->GetDefaultLayout());
 	}
 }
@@ -3516,7 +3549,7 @@ void VulkanRenderer::texture_clearSlice(LatteTexture* hostTexture, sint32 sliceI
 void VulkanRenderer::texture_clearColorSlice(LatteTexture* hostTexture, sint32 sliceIndex, sint32 mipIndex, float r, float g, float b, float a)
 {
 	if (LatteTexture* sibling = LatteView_OnTextureClear(hostTexture, sliceIndex, mipIndex))
-		texture_clearColorSlice(sibling, sliceIndex, mipIndex, r, g, b, a);
+		texture_clearColorSlice(sibling, LatteView_GetSiblingSlice(hostTexture, sliceIndex), mipIndex, r, g, b, a);
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 	if(vkTexture->dim == Latte::E_DIM::DIM_3D)
 	{
@@ -3529,7 +3562,7 @@ void VulkanRenderer::texture_clearDepthSlice(LatteTexture* hostTexture, uint32 s
 {
 	draw_endRenderPass(); // vkCmdClearDepthStencilImage must not be inside renderpass
 	if (LatteTexture* sibling = LatteView_OnTextureClear(hostTexture, sliceIndex, mipIndex))
-		texture_clearDepthSlice(sibling, sliceIndex, mipIndex, clearDepth, clearStencil, depthValue, stencilValue);
+		texture_clearDepthSlice(sibling, LatteView_GetSiblingSlice(hostTexture, sliceIndex), mipIndex, clearDepth, clearStencil, depthValue, stencilValue);
 
 	auto vkTexture = (LatteTextureVk*)hostTexture;
 
@@ -3693,7 +3726,7 @@ void VulkanRenderer::texture_copyImageSubData(LatteTexture* src, sint32 srcMip, 
 	LatteTexture* srcSibling;
 	LatteTexture* dstSibling;
 	if (LatteView_OnTextureCopy(src, srcSlice, srcMip, dst, dstSlice, dstMip, srcSibling, dstSibling))
-		texture_copyImageSubData(srcSibling, srcMip, effectiveSrcX, effectiveSrcY, srcSlice, dstSibling, dstMip, effectiveDstX, effectiveDstY, dstSlice, effectiveCopyWidth, effectiveCopyHeight, srcDepth);
+		texture_copyImageSubData(srcSibling, srcMip, effectiveSrcX, effectiveSrcY, LatteView_GetSiblingSlice(src, srcSlice), dstSibling, dstMip, effectiveDstX, effectiveDstY, LatteView_GetSiblingSlice(dst, dstSlice), effectiveCopyWidth, effectiveCopyHeight, srcDepth);
 
 	VKRObjectTexture* srcVkObj = srcVk->GetImageObj();
 	VKRObjectTexture* dstVkObj = dstVk->GetImageObj();
@@ -4208,8 +4241,9 @@ void VKRObjectSampler::DestroyCache()
 	s_samplerCache.clear();
 }
 
-VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint32 colorAttachmentCount)
+VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint32 colorAttachmentCount, uint32 viewMask)
 {
+	m_viewMask = viewMask;
 	VulkanRenderer* vkRenderer = VulkanRenderer::GetInstance();
 	bool useAttachmentFeedbackLoop = vkRenderer->UseAttachmentFeedbackLoop();
 	VkImageLayout attachmentLayout = useAttachmentFeedbackLoop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : VK_IMAGE_LAYOUT_GENERAL;
@@ -4229,6 +4263,7 @@ VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint3
 		stateHash += attachmentInfo.depthAttachment.format;
 		stateHash = std::rotl<uint64>(stateHash, 7);
 	}
+	stateHash += viewMask;
 	m_hashForPipeline = stateHash;
 
 	// setup Vulkan renderpass
@@ -4324,6 +4359,8 @@ VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint3
 		feedbackLoopDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		feedbackLoopDependency.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		feedbackLoopDependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT | VK_DEPENDENCY_FEEDBACK_LOOP_BIT_EXT;
+		if (viewMask != 0)
+			feedbackLoopDependency.dependencyFlags |= VK_DEPENDENCY_VIEW_LOCAL_BIT;
 		renderPassInfo.pDependencies = &feedbackLoopDependency;
 		renderPassInfo.dependencyCount = 1;
 	}
@@ -4335,6 +4372,17 @@ VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint3
 	// before Cemu 1.25.5 we used zero here, which means implicit synchronization. For 1.25.5 it was changed to 2 (using the subpass dependencies above)
 	// Reverted this again to zero for Cemu 1.25.5b as the performance cost is just too high. Manual synchronization is preferred
 	// as of Cemu 2.7 we are now using VK_EXT_attachment_feedback_loop_layout with a matching renderpass dependency if supported. Otherwise we are falling back to the above
+
+	VkRenderPassMultiviewCreateInfo multiviewInfo{};
+	if (viewMask != 0)
+	{
+		multiviewInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO;
+		multiviewInfo.subpassCount = 1;
+		multiviewInfo.pViewMasks = &m_viewMask;
+		multiviewInfo.correlationMaskCount = 1;
+		multiviewInfo.pCorrelationMasks = &m_viewMask;
+		renderPassInfo.pNext = &multiviewInfo;
+	}
 
 	if (vkCreateRenderPass(vkRenderer->GetLogicalDevice(), &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS)
 	{

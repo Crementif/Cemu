@@ -290,6 +290,7 @@ public:
 	void renderTarget_setScissor(sint32 scissorX, sint32 scissorY, sint32 scissorWidth, sint32 scissorHeight) override;
 
 	LatteCachedFBO* rendertarget_createCachedFBO(uint64 key) override;
+	LatteCachedFBO* rendertarget_createMultiviewCachedFBO(uint32 viewMask) override;
 	void rendertarget_deleteCachedFBO(LatteCachedFBO* cfbo) override;
 	void rendertarget_bindFramebufferObject(LatteCachedFBO* cfbo) override;
 
@@ -478,6 +479,13 @@ private:
 		{
 			bool shaderRoundingModeRTEFloat32{ false };
 		}shaderFloatControls; // from VK_KHR_shader_float_controls
+
+		struct
+		{
+			bool supported{ false };
+			bool geometryShader{ false };
+			uint32 maxViewCount{ 0 };
+		}multiview;
 
 		struct
 		{
@@ -960,6 +968,8 @@ public:
 	bool IsDebugMarkersEnabled() const { return m_featureControl.usingDebugMarkerTool; }
 	bool IsTracingToolEnabled() const { return m_featureControl.usingTracingTool; }
 	bool UseAttachmentFeedbackLoop() const { return m_featureControl.deviceExtensions.attachment_feedback_loop_dynamic_state; }
+	bool SupportsMultiview(bool withGeometryShader) const { return withGeometryShader ? m_featureControl.multiview.geometryShader : m_featureControl.multiview.supported; }
+	uint32 GetMaxMultiviewViewCount() const { return m_featureControl.multiview.maxViewCount; }
 
 	// host modules
 	void HostModule_DispatchEvent(const HostModule::HostEvent& event, LatteTexture* texture, uint32 sliceIndex);
@@ -991,8 +1001,17 @@ private:
 	VkDescriptorSetInfo* view_getRightDescriptorSet(PipelineInfo* pipeline_info, LatteDecompilerShader* shader, VkDescriptorSetInfo* leftDS);
 	void view_bindRightStage(PipelineInfo* pipeline_info, uint32 stageIndex, VkDescriptorSetInfo* rightDS, LatteDecompilerShader* shader, const float* leftUniformData);
 	void view_notifyFBODeleted(LatteCachedFBO* fbo);
+	void view_selectFBO(bool& isFirst);
+	bool view_drawNeedsRight();
+	bool view_canDrawMultiview();
+	CachedFBOVk* view_getMultiviewFBO(CachedFBOVk* guestFBO);
+	LatteTextureViewVk* view_getPairedTextureView(LatteTextureViewVk* view);
+	VkDescriptorSetInfo* view_getPairDescriptorSet(PipelineInfo* pipeline_info, LatteDecompilerShader* shader, VkDescriptorSetInfo* leftDS);
+	void view_preparePairDescriptorSets(PipelineInfo* pipeline_info, VkDescriptorSetInfo*& vertexDS, VkDescriptorSetInfo*& pixelDS, VkDescriptorSetInfo*& geometryDS);
 	bool uniformData_buildRightView(LatteDecompilerShader* shader, const float* leftUniformData, float* rightUniformData);
+	bool uniformData_updateViewArrays(LatteDecompilerShader* shader, float* uniformData);
 	void occlusionQuery_suspendFragments(bool suspend);
+	bool occlusionQuery_hasActiveFragment() const;
 
 	// debug
 	void debug_genericBarrier();

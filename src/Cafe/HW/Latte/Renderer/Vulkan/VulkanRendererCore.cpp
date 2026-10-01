@@ -312,9 +312,10 @@ void VulkanRenderer::indexData_uploadIndexMemory(IndexAllocation& allocation)
 	memoryManager->GetIndexAllocator().FlushReservation((VKRSynchronizedHeapAllocator::AllocatorReservation*)allocation.rendererInternal);
 }
 
-float s_vkUniformDataVS[512 * 4];
-float s_vkUniformDataPS[512 * 4];
-float s_vkUniformDataGS[512 * 4];
+// doubled for view arrays
+float s_vkUniformDataVS[1024 * 4];
+float s_vkUniformDataPS[1024 * 4];
+float s_vkUniformDataGS[1024 * 4];
 
 float* VulkanRenderer_GetUniformData(uint32 shaderStageIndex)
 {
@@ -456,6 +457,8 @@ void VulkanRenderer::uniformData_updateUniformVars(uint32 shaderStageIndex, Latt
 			}
 		}
 	}
+	if (shader->hasViewArrays)
+		uniformData_updateViewArrays(shader, uniformBuf);
 	dynamicOffsetInfo.uniformVarBufferOffset[shaderStageIndex] = uniformData_uploadUniformDataBufferGetOffset({(uint8*)uniformBuf, shader->uniform.uniformRangeSize});
 }
 
@@ -501,6 +504,8 @@ void VulkanRenderer::uniformData_updateUniformVarsIncremental(uint32 shaderStage
 		uint32* uniformRegData = (uint32*)(LatteGPUState.contextRegister + mmSQ_ALU_CONSTANT0_0 + shaderAluConst);
 		memcpy(GET_UNIFORM_DATA_PTR(shader->uniform.loc_uniformRegister), uniformRegData, shader->uniform.count_uniformRegister * 16);
 	}
+	if (shader->hasViewArrays && (uniformData_updateViewArrays(shader, uniformBuf) || (hasChange && LatteView_IsStereo())))
+		hasChange = true;
 	if (hasChange)
 	{
 		dynamicOffsetInfo.uniformVarBufferOffset[shaderStageIndex] = uniformData_uploadUniformDataBufferGetOffset({(uint8*)uniformBuf, shader->uniform.uniformRangeSize});
@@ -581,6 +586,13 @@ uint64 VulkanRenderer::GetDescriptorSetStateHash(LatteDecompilerShader* shader)
 		hash += (uint64)texture->GetUniqueId();
 		hash = std::rotr<uint64>(hash, 21);
 		hash += (uint64)(word4 & 0x0FFF0000);
+		if (m_view.buildPairDescriptorSet)
+		{
+			hash = std::rotl<uint64>(hash, 11);
+			if (LatteTextureViewVk* rightView = view_getPairedTextureView(texture))
+				hash += (uint64)rightView->GetUniqueId();
+			hash += 0x9E3779B97F4A7C15ull;
+		}
 	}
 
 	return hash;
@@ -648,6 +660,7 @@ VkDescriptorSetInfo* VulkanRenderer::draw_getOrCreateDescriptorSet(PipelineInfo*
 
 	std::vector<VkWriteDescriptorSet> descriptorWrites;
 	std::vector<VkDescriptorImageInfo> textureArray;
+	std::vector<VkDescriptorImageInfo> rightTextureArray;
 	for (int i = 0; i < textureCount; ++i)
 	{
 		VkDescriptorImageInfo info{};
@@ -895,10 +908,36 @@ VkDescriptorSetInfo* VulkanRenderer::draw_getOrCreateDescriptorSet(PipelineInfo*
 		vkObjDS->addRef(samplerObj);
 		info.sampler = samplerObj->GetSampler();
 		textureArray.emplace_back(info);
+		if (shader->hasViewArrays)
+		{
+			if (LatteTextureViewVk* rightView = m_view.buildPairDescriptorSet ? view_getPairedTextureView(textureView) : nullptr)
+			{
+				auto rightImageViewObj = rightView->GetSamplerView(word4);
+				vkObjDS->addRef(rightImageViewObj);
+				vectorAppendUnique(dsInfo->list_referencedViews, rightView);
+				rightView->AddDescriptorSetReference(dsInfo);
+				vectorAppendUnique(dsInfo->list_fboCandidates, static_cast<LatteTextureVk*>(rightView->baseTexture));
+				info.imageView = rightImageViewObj->m_textureImageView;
+				info.imageLayout = static_cast<LatteTextureVk*>(rightView->baseTexture)->GetDefaultLayout();
+			}
+			rightTextureArray.resize(textureArray.size() - 1, VkDescriptorImageInfo{});
+			rightTextureArray.emplace_back(info);
+		}
 	}
 
+	const uint32 viewCount = shader->hasViewArrays ? 2 : 1;
+	std::vector<VkDescriptorImageInfo> viewArray;
 	if (textureCount > 0)
 	{
+		if (viewCount == 2)
+		{
+			rightTextureArray.resize(textureArray.size(), VkDescriptorImageInfo{});
+			for (sint32 i = 0; i < textureCount; i++)
+			{
+				viewArray.emplace_back(textureArray[i]);
+				viewArray.emplace_back(rightTextureArray[i].imageView ? rightTextureArray[i] : textureArray[i]);
+			}
+		}
 		for (sint32 i = 0; i < textureCount; i++)
 		{
 			VkWriteDescriptorSet write_descriptor{};
@@ -907,8 +946,8 @@ VkDescriptorSetInfo* VulkanRenderer::draw_getOrCreateDescriptorSet(PipelineInfo*
 			write_descriptor.dstBinding = shader->resourceMapping.getTextureBaseBindingPoint() + i;
 			write_descriptor.dstArrayElement = 0;
 			write_descriptor.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			write_descriptor.descriptorCount = 1;
-			write_descriptor.pImageInfo = textureArray.data() + i;
+			write_descriptor.descriptorCount = viewCount;
+			write_descriptor.pImageInfo = viewCount == 2 ? viewArray.data() + i * 2 : textureArray.data() + i;
 			descriptorWrites.emplace_back(write_descriptor);
 			performanceMonitor.vk.numDescriptorSamplerTextures.increment();
 			dsInfo->statsNumSamplerTextures++;
@@ -1230,6 +1269,8 @@ void VulkanRenderer::draw_setRenderPass()
 	bool selfDependencyNeedsPassSplit = currentSelfDependencyInfo.HasSelfDependency() && !feedbackLoopHandlesSelfDependency;
 	bool overridePassReuse = selfDependencyNeedsPassSplit && (GetConfig().vk_accurate_barriers || m_state.activePipelineInfo->neverSkipAccurateBarrier);
 
+	if (m_view.isStereo && m_view.drawNeedsRight && !m_view.isRecording && !m_view.isMultiviewFBO && !m_view.hasNoRightPass)
+		overridePassReuse = true;
 	if (!overridePassReuse && m_state.activeRenderpassFBO == fboVk)
 	{
 		if (m_state.descriptorSetsChanged || feedbackLoopHandlesSelfDependency)
@@ -1477,6 +1518,8 @@ void VulkanRenderer::draw_execute_first(uint32 baseVertex, uint32 baseInstance, 
 
 	VkDescriptorSetInfo *vertexDS = nullptr, *pixelDS = nullptr, *geometryDS = nullptr;
 	draw_prepareDescriptorSets(pipeline_info, vertexDS, pixelDS, geometryDS);
+	if (m_view.isMultiviewFBO)
+		view_preparePairDescriptorSets(pipeline_info, vertexDS, pixelDS, geometryDS);
 	m_state.activeVertexDS = vertexDS;
 	m_state.activePixelDS = pixelDS;
 	m_state.activeGeometryDS = geometryDS;
@@ -1648,6 +1691,8 @@ void VulkanRenderer::draw_execute_continued(uint32 baseVertex, uint32 baseInstan
 		m_state.activePipelineInfo = pipeline_info;
 		// if the pipeline is changed then we also need to get the descriptor sets
 		draw_prepareDescriptorSets(pipeline_info, m_state.activeVertexDS, m_state.activePixelDS, m_state.activeGeometryDS);
+		if (m_view.isMultiviewFBO)
+			view_preparePairDescriptorSets(pipeline_info, m_state.activeVertexDS, m_state.activePixelDS, m_state.activeGeometryDS);
 		m_state.descriptorSetsChanged = true;
 		stageUniformModifiedMask = 0x7;
 	}
@@ -1783,7 +1828,11 @@ void VulkanRenderer::draw_execute_continued(uint32 baseVertex, uint32 baseInstan
 
 void VulkanRenderer::draw_execute(uint32 baseVertex, uint32 baseInstance, uint32 instanceCount, uint32 count, MPTR indexDataMPTR, Latte::LATTE_VGT_DMA_INDEX_TYPE::E_INDEX_TYPE indexType, const LatteDrawcallContext& drawcallContext)
 {
-	if (drawcallContext.isFirst)
+	bool isFirst = drawcallContext.isFirst;
+	m_view.drawNeedsRight = m_view.isStereo && !m_state.drawSequenceSkip && view_drawNeedsRight();
+	if (LatteView_IsMultiviewRequested() && !m_state.drawSequenceSkip)
+		view_selectFBO(isFirst);
+	if (isFirst)
 		draw_execute_first(baseVertex, baseInstance, instanceCount, count, indexDataMPTR, indexType, drawcallContext);
 	else
 		draw_execute_continued(baseVertex, baseInstance, instanceCount, count, indexDataMPTR, indexType, drawcallContext);
@@ -1834,6 +1883,11 @@ void VulkanRenderer::draw_updateUniformBuffersDirectAccess(LatteDecompilerShader
 				continue;
 			}
 			uniformSize = std::min<uint32>(uniformSize, buf.size);
+			if (shader->viewArrayBufferMask & (1 << i))
+			{
+				if (MPTR pairPhysAddr = LatteView_GetUniformBufferPair(physicalAddr, uniformSize, buf.size); pairPhysAddr != MPTR_NULL)
+					physicalAddr = pairPhysAddr;
+			}
 
 			cemu_assert_debug(physicalAddr < 0x50000000);
 

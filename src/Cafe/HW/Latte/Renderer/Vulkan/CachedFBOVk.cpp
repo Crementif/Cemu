@@ -36,7 +36,7 @@ void CachedFBOVk::CreateRenderPass()
 		attachmentInfo.depthAttachment.viewObj = nullptr;
 	}
 
-	m_vkrObjRenderPass = new VKRObjectRenderPass(attachmentInfo);
+	m_vkrObjRenderPass = new VKRObjectRenderPass(attachmentInfo, Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS, m_viewMask);
 }
 
 CachedFBOVk::~CachedFBOVk()
@@ -191,7 +191,7 @@ void CachedFBOVk::InitDynamicRenderingData()
 	m_vkRenderingInfo.flags = 0;
 	m_vkRenderingInfo.renderArea.offset = { 0, 0 };
 	m_vkRenderingInfo.renderArea.extent = m_extend;
-	m_vkRenderingInfo.viewMask = 0; // multiview disabled
+	m_vkRenderingInfo.viewMask = m_viewMask;
 	m_vkRenderingInfo.layerCount = 1;
 }
 

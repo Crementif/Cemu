@@ -130,7 +130,7 @@ void LatteMRT::DeleteCachedFBO(LatteCachedFBO* cfbo)
 	delete cfbo;
 }
 
-LatteCachedFBO* LatteMRT::CreateDetachedCachedFBO(LatteTextureView* const* colorViews, LatteTextureView* depthView, bool hasStencil)
+LatteCachedFBO* LatteMRT::CreateDetachedCachedFBO(LatteTextureView* const* colorViews, LatteTextureView* depthView, bool hasStencil, uint32 viewMask)
 {
 	// the FBO constructor reads the current attachments
 	auto previousRendertargets = sLatteCurrentRendertargets;
@@ -138,7 +138,7 @@ LatteCachedFBO* LatteMRT::CreateDetachedCachedFBO(LatteTextureView* const* color
 		sLatteCurrentRendertargets.colorBuffer[i].view = colorViews[i];
 	sLatteCurrentRendertargets.depthBuffer.view = depthView;
 	sLatteCurrentRendertargets.depthBuffer.hasStencil = hasStencil;
-	LatteCachedFBO* cfbo = CreateCachedFBO(0);
+	LatteCachedFBO* cfbo = viewMask != 0 ? g_renderer->rendertarget_createMultiviewCachedFBO(viewMask) : CreateCachedFBO(0);
 	sLatteCurrentRendertargets = previousRendertargets;
 	return cfbo;
 }
@@ -242,7 +242,9 @@ void LatteMRT::BindDepthBufferOnly(LatteTextureView* view)
 
 LatteTextureView* LatteMRT_CreateDepthBuffer(MPTR depthBufferPhysMem, uint32 width, uint32 height, uint32 pitch, Latte::E_HWTILEMODE tileMode, Latte::E_GX2SURFFMT format, uint32 swizzle, sint32 viewSlice)
 {
+	LatteView_BeginRenderTargetCreation();
 	LatteTextureView* textureView = LatteTexture_CreateMapping(depthBufferPhysMem, MPTR_NULL, width, height, viewSlice+1, pitch, tileMode, swizzle, 0, 1, viewSlice, 1, format, viewSlice > 0 ? Latte::E_DIM::DIM_2D_ARRAY : Latte::E_DIM::DIM_2D, Latte::E_DIM::DIM_2D, true);
+	LatteView_EndRenderTargetCreation();
 	LatteMRT::SetDepthAndStencilAttachment(textureView, textureView->baseTexture->hasStencil);
 	return textureView;
 }
@@ -378,10 +380,12 @@ LatteTextureView* LatteMRT::GetColorAttachmentTexture(uint32 index, bool createN
 
 	LatteTextureView* colorBufferView = LatteTextureViewLookupCache::lookupSliceEx(colorBufferPhysMem, colorBufferWidth, colorBufferHeight, colorBufferPitch, viewFirstMip, viewFirstSlice, colorBufferFormat, false);
 
-	if (colorBufferView == nullptr)
+	if (colorBufferView == nullptr || LatteView_LacksViewLayer(colorBufferView->baseTexture))
 	{
 		// create color buffer view
+		LatteView_BeginRenderTargetCreation();
 		colorBufferView = LatteTexture_CreateMapping(colorBufferPhysMem, 0, colorBufferWidth, colorBufferHeight, (viewFirstSlice + viewNumSlices), colorBufferPitch, colorBufferTileMode, colorBufferSwizzle>>8, viewFirstMip, 1, viewFirstSlice, viewNumSlices, (Latte::E_GX2SURFFMT)colorBufferFormat, (viewFirstSlice + viewNumSlices)>1? Latte::E_DIM::DIM_2D_ARRAY: Latte::E_DIM::DIM_2D, Latte::E_DIM::DIM_2D, false, true);
+		LatteView_EndRenderTargetCreation();
 		LatteGPUState.repeatTextureInitialization = true;
 		checkForTextureChanges = false;
 	}
@@ -648,10 +652,12 @@ bool LatteMRT::UpdateCurrentFBO()
 			if (depthBufferPhysMem != MPTR_NULL)
 			{
 				LatteTextureView* depthBufferView = LatteTextureViewLookupCache::lookupSliceEx(depthBufferPhysMem, depthBufferWidth, depthBufferHeight, depthBufferPitch, 0, depthBufferViewFirstSlice, depthBufferFormat, true);
-				if (!depthBufferView)
+				if (!depthBufferView || LatteView_LacksViewLayer(depthBufferView->baseTexture))
 				{
 					// create new depth buffer view and if it doesn't exist then also create the texture
+					LatteView_BeginRenderTargetCreation();
 					depthBufferView = LatteTexture_CreateMapping(depthBufferPhysMem, 0, depthBufferWidth, depthBufferHeight, depthBufferViewFirstSlice+1, depthBufferPitch, depthBufferTileMode, depthBufferSwizzle, 0, 1, depthBufferViewFirstSlice, 1, depthBufferFormat, depthBufferViewFirstSlice > 0 ? Latte::E_DIM::DIM_2D_ARRAY : Latte::E_DIM::DIM_2D, Latte::E_DIM::DIM_2D, true, true);
+					LatteView_EndRenderTargetCreation();
 					LatteGPUState.repeatTextureInitialization = true;
 				}
 				else
@@ -872,7 +878,9 @@ void LatteRenderTarget_itHLEClearColorDepthStencil(uint32 clearMask,
 		{
 			// create new texture with matching format
 			cemu_assert_debug(colorBufferViewNumSlice <= 1);
+			LatteView_BeginRenderTargetCreation();
 			LatteTextureView* newColorView = LatteTexture_CreateMapping(colorBufferMPTR, MPTR_NULL, colorBufferWidth, colorBufferHeight, colorBufferViewFirstSlice+1, colorBufferPitch, colorBufferTilemode, colorBufferSwizzle, 0, 1, colorBufferViewFirstSlice, 1, colorBufferFormat, colorBufferViewFirstSlice > 0 ? Latte::E_DIM::DIM_2D_ARRAY : Latte::E_DIM::DIM_2D, Latte::E_DIM::DIM_2D, false);
+			LatteView_EndRenderTargetCreation();
 			LatteRenderTarget_applyTextureColorClear(newColorView->baseTexture, colorBufferViewFirstSlice, colorBufferMipIndex, r, g, b, a, eventCounter);
 		}
 	}

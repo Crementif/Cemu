@@ -176,7 +176,12 @@ bool LatteBufferCache_syncGPUUniformBuffers(LatteDecompilerShader* shader, const
 			continue;
 		}
 		uniformSize = std::min<uint32>(uniformSize, buf.size);
-		uint32 bindOffset = LatteBufferCache_retrieveDataInCache(physicalAddr, uniformSize);
+		uint32 bindOffset;
+		MPTR pairPhysAddr = (shader->viewArrayBufferMask & (1 << i)) ? LatteView_GetUniformBufferPair(physicalAddr, uniformSize, buf.size) : MPTR_NULL;
+		if (pairPhysAddr != MPTR_NULL)
+			bindOffset = LatteBufferCache_retrieveDataInCache(pairPhysAddr, buf.size + uniformSize);
+		else
+			bindOffset = LatteBufferCache_retrieveDataInCache(physicalAddr, uniformSize);
 		g_renderer->buffer_bindUniformBuffer(shaderType, i, bindOffset, uniformSize);
 		LatteView_SyncRightUniformBuffer(shaderType, i, physicalAddr, uniformSize, bindOffset);
 	}

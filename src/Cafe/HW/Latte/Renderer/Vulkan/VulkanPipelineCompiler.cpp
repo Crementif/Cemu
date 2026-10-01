@@ -273,7 +273,7 @@ void PipelineCompiler::CreateDescriptorSetLayout(VulkanRenderer* vkRenderer, Lat
 		{
 			VkDescriptorSetLayoutBinding entry{};
 			entry.binding = (uint32)textureBindingBase + i;
-			entry.descriptorCount = 1;
+			entry.descriptorCount = shader->hasViewArrays ? 2 : 1;
 			entry.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			entry.pImmutableSamplers = nullptr;
 			entry.stageFlags = stageFlags;
@@ -1042,7 +1042,7 @@ void PipelineCompiler::TrackAsCached(uint64 baseHash, uint64 pipelineStateHash)
 	auto& pipelineCache = VulkanPipelineStableCache::GetInstance();
 	if (pipelineCache.HasPipelineCached(baseHash, pipelineStateHash))
 		return;
-	pipelineCache.AddCurrentStateToCache(baseHash, pipelineStateHash);
+	pipelineCache.AddCurrentStateToCache(baseHash, pipelineStateHash, m_renderPassObj ? m_renderPassObj->m_viewMask : 0);
 }
 
 // calculate whether the pipeline requires robust buffer access

@@ -27,7 +27,7 @@ struct CopySurfacePipelineInfo
 
 		T* create(sint32 sliceIndex, sint32 mipIndex)
 		{
-			sint32 idx = m_texture->GetSliceMipArrayIndex(sliceIndex, mipIndex);
+			sint32 idx = GetIndex(sliceIndex, mipIndex);
 			if (idx >= m_array.size())
 				m_array.resize(idx + 1);
 			T* v = new T();
@@ -37,10 +37,15 @@ struct CopySurfacePipelineInfo
 
 		T* get(sint32 sliceIndex, sint32 mipIndex) const
 		{
-			sint32 idx = m_texture->GetSliceMipArrayIndex(sliceIndex, mipIndex);
+			sint32 idx = GetIndex(sliceIndex, mipIndex);
 			if (idx >= m_array.size())
 				return nullptr;
 			return m_array[idx];
+		}
+
+		sint32 GetIndex(sint32 sliceIndex, sint32 mipIndex) const
+		{
+			return m_texture->depth * (m_texture->hasViewLayer ? 2 : 1) * mipIndex + sliceIndex;
 		}
 
 		TexSliceMipMapping(const TexSliceMipMapping&) = delete;
@@ -699,7 +704,9 @@ void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint3
 	vkCmdSetViewport(m_state.currentCommandBuffer, 0, 1, &m_state.currentViewport);
 	vkCmdSetScissor(m_state.currentCommandBuffer, 0, 1, &m_state.currentScissorRect);
 
-	LatteTexture_TrackTextureGPUWrite(dstTextureVk, texDstSlice, texDstMip, LatteTexture_getNextUpdateEventCounter());
+	// view layers aren't tracked
+	if (texDstSlice < dstTextureVk->depth)
+		LatteTexture_TrackTextureGPUWrite(dstTextureVk, texDstSlice, texDstMip, LatteTexture_getNextUpdateEventCounter());
 }
 
 struct vkComponentDesc_t
@@ -791,7 +798,7 @@ void VulkanRenderer::surfaceCopy_copySurfaceWithFormatConversion(LatteTexture* s
 	LatteTexture* srcSibling;
 	LatteTexture* dstSibling;
 	if (LatteView_OnTextureCopy(sourceTexture, srcSlice, srcMip, destinationTexture, dstSlice, dstMip, srcSibling, dstSibling))
-		surfaceCopy_copySurfaceWithFormatConversion(srcSibling, srcMip, srcSlice, dstSibling, dstMip, dstSlice, width, height);
+		surfaceCopy_copySurfaceWithFormatConversion(srcSibling, srcMip, LatteView_GetSiblingSlice(sourceTexture, srcSlice), dstSibling, dstMip, LatteView_GetSiblingSlice(destinationTexture, dstSlice), width, height);
 
 	// scale copy size to effective size
 	sint32 effectiveCopyWidth = width;

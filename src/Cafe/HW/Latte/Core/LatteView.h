@@ -13,8 +13,19 @@ void LatteView_itLoadAluConst(const uint32be* data, uint32 nWords);
 
 bool LatteView_IsStereo();
 
+// has to be set before any shader gets decompiled
+void LatteView_SetMultiviewRequested(bool requested);
+bool LatteView_IsMultiviewRequested();
+bool LatteView_UsesMultiview(bool withGeometryShader);
+
 // right view siblings, the right view reads the texture itself until it writes its own
 LatteTexture* LatteView_GetOrCreateSibling(LatteTexture* texture);
+sint32 LatteView_GetSiblingSlice(LatteTexture* texture, sint32 sliceIndex);
+void LatteView_BeginRenderTargetCreation();
+void LatteView_EndRenderTargetCreation();
+bool LatteView_CreatesViewLayer(Latte::E_DIM dim, uint32 depth);
+bool LatteView_SupportsViewLayer(Latte::E_DIM dim, uint32 depth);
+bool LatteView_LacksViewLayer(LatteTexture* texture);
 void LatteView_DeleteSibling(LatteTexture* texture);
 bool LatteView_IsSiblingValid(LatteTexture* texture, sint32 sliceIndex, sint32 mipIndex);
 void LatteView_SetSiblingValid(LatteTexture* texture, sint32 sliceIndex, sint32 mipIndex, bool isValid);
@@ -29,6 +40,7 @@ uint32 LatteView_GetRightDataEpoch();
 const uint8* LatteView_GetRightUniformBlock(MPTR physAddr, uint32 size);
 void LatteView_SyncRightUniformBuffer(LatteConst::ShaderType shaderType, uint32 bufferIndex, MPTR physAddr, uint32 size, uint32 bindOffset);
 uint32 LatteView_GetRightUniformBufferOffset(LatteConst::ShaderType shaderType, uint32 bufferIndex);
+MPTR LatteView_GetUniformBufferPair(MPTR physAddr, uint32 size, uint32 stride);
 
 // uniform registers set by IT_HLE_VIEW_ALU_CONST, until the game writes them again
 void LatteView_SetRightAluConst(uint32 registerOffset, uint32 count, const uint32be* values);

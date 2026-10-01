@@ -14,6 +14,14 @@ public:
 		InitDynamicRenderingData();
 	}
 
+	CachedFBOVk(uint64 key, VkDevice device, uint32 viewMask)
+		: LatteCachedFBO(key), m_device(device), m_viewMask(viewMask)
+	{
+		CreateRenderPass();
+		CreateFramebuffer();
+		InitDynamicRenderingData();
+	}
+
 	~CachedFBOVk();
 
 	static inline FSpinlock s_spinlockDependency;
@@ -86,6 +94,7 @@ private:
 	VKRObjectTextureView* GetDepthStencilBufferImageView(bool& hasStencil);
 
 	VkDevice m_device;
+	uint32 m_viewMask{};
 	VKRObjectRenderPass* m_vkrObjRenderPass{};
 	VKRObjectFramebuffer* m_vkrObjFramebuffer{};
 

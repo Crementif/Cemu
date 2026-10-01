@@ -18,6 +18,8 @@ enum class ViewScopeMode : uint32
 };
 
 static bool s_isStereo = false;
+static bool s_multiviewRequested = false;
+static uint32 s_renderTargetCreationDepth = 0;
 
 struct RightWords
 {
@@ -25,6 +27,8 @@ struct RightWords
 	std::vector<uint32be> words;
 };
 static std::vector<RightWords> s_rightWords;
+// ranges of the right words, to quickly check if a block has any
+static std::vector<std::pair<MPTR, MPTR>> s_rightWordRanges;
 
 // uniform blocks the right view looked up in this scope, data is empty if it has no right words
 struct RightBlock
@@ -32,10 +36,11 @@ struct RightBlock
 	uint32 size;
 	std::vector<uint8> data;
 	MPTR copyPhysAddr;
+	std::vector<std::pair<uint32, MPTR>> pairCopies;
 };
 static std::unordered_map<MPTR, RightBlock> s_rightBlocks;
 
-static constexpr uint32 RIGHT_BLOCK_ARENA_SIZE = 256 * 1024;
+static constexpr uint32 RIGHT_BLOCK_ARENA_SIZE = 2 * 1024 * 1024;
 static SysAllocator<uint8, RIGHT_BLOCK_ARENA_SIZE, 256> s_rightBlockArena;
 static uint32 s_rightBlockArenaUsed = 0;
 
@@ -54,6 +59,14 @@ LatteTexture* LatteView_GetOrCreateSibling(LatteTexture* texture)
 		return nullptr;
 	if (texture->viewSibling)
 		return texture->viewSibling;
+	if (texture->hasViewLayer)
+	{
+		texture->viewSibling = texture;
+		texture->viewSiblingValid.assign(texture->GetSliceMipArraySize(), false);
+		s_siblingEpoch++;
+		return texture;
+	}
+	uint32 renderTargetCreationDepth = std::exchange(s_renderTargetCreationDepth, 0);
 	LatteTexture* sibling = g_renderer->texture_createTextureEx(texture->dim, texture->physAddress, texture->physMipAddress, texture->format, texture->width, texture->height, texture->depth, texture->pitch, texture->mipLevels, texture->swizzle, texture->tileMode, texture->isDepth);
 	sibling->isViewSibling = true;
 	// texture rules could have changed since, and a size mismatch would overrun copies
@@ -66,6 +79,7 @@ LatteTexture* LatteView_GetOrCreateSibling(LatteTexture* texture)
 		delete sibling;
 		return nullptr;
 	}
+	s_renderTargetCreationDepth = renderTargetCreationDepth;
 	LatteTexture_InitSliceAndMipInfo(sibling);
 	sibling->AllocateOnHost();
 	sibling->isDataDefined = true;
@@ -81,6 +95,13 @@ void LatteView_DeleteSibling(LatteTexture* texture)
 	LatteTexture* sibling = texture->viewSibling;
 	if (!sibling)
 		return;
+	if (sibling == texture)
+	{
+		texture->viewSibling = nullptr;
+		texture->viewSiblingValid.clear();
+		s_siblingEpoch++;
+		return;
+	}
 #ifdef ENABLE_VULKAN
 	if (g_renderer && g_renderer->GetType() == RendererAPI::Vulkan)
 		VulkanRenderer::GetInstance()->view_notifySiblingDeleted(texture);
@@ -93,6 +114,44 @@ void LatteView_DeleteSibling(LatteTexture* texture)
 	sibling->sliceMipInfo = nullptr;
 	delete sibling;
 	s_siblingEpoch++;
+}
+
+sint32 LatteView_GetSiblingSlice(LatteTexture* texture, sint32 sliceIndex)
+{
+	return texture->viewSibling == texture ? sliceIndex + texture->depth : sliceIndex;
+}
+
+bool LatteView_SupportsViewLayer(Latte::E_DIM dim, uint32 depth)
+{
+	if (dim != Latte::E_DIM::DIM_2D && dim != Latte::E_DIM::DIM_2D_ARRAY)
+		return false;
+#ifdef ENABLE_VULKAN
+	if (!LatteView_UsesMultiview(false) || depth >= VulkanRenderer::GetInstance()->GetMaxMultiviewViewCount())
+		return false;
+	return true;
+#else
+	return false;
+#endif
+}
+
+void LatteView_BeginRenderTargetCreation()
+{
+	s_renderTargetCreationDepth++;
+}
+
+void LatteView_EndRenderTargetCreation()
+{
+	s_renderTargetCreationDepth--;
+}
+
+bool LatteView_CreatesViewLayer(Latte::E_DIM dim, uint32 depth)
+{
+	return s_renderTargetCreationDepth != 0 && LatteView_SupportsViewLayer(dim, depth);
+}
+
+bool LatteView_LacksViewLayer(LatteTexture* texture)
+{
+	return !texture->hasViewLayer && !texture->viewLayerUnavailable && !texture->isViewSibling && LatteView_SupportsViewLayer(texture->dim, texture->depth);
 }
 
 bool LatteView_IsSiblingValid(LatteTexture* texture, sint32 sliceIndex, sint32 mipIndex)
@@ -138,28 +197,22 @@ void LatteView_SeedSibling(LatteTexture* texture, sint32 sliceIndex, sint32 mipI
 {
 	sint32 width, height;
 	texture->GetEffectiveSize(width, height, mipIndex);
-	g_renderer->texture_copyImageSubData(texture, mipIndex, 0, 0, sliceIndex, texture->viewSibling, mipIndex, 0, 0, sliceIndex, width, height, 1);
+	g_renderer->texture_copyImageSubData(texture, mipIndex, 0, 0, sliceIndex, texture->viewSibling, mipIndex, 0, 0, LatteView_GetSiblingSlice(texture, sliceIndex), width, height, 1);
 	LatteView_SetSiblingValid(texture, sliceIndex, mipIndex, true);
 }
 
 LatteTexture* LatteView_OnTextureClear(LatteTexture* texture, sint32 sliceIndex, sint32 mipIndex)
 {
-	if (texture->isViewSibling)
+	if (texture->isViewSibling || sliceIndex >= texture->depth)
 		return nullptr;
-	if (!s_isStereo)
-	{
-		LatteView_SetSiblingValid(texture, sliceIndex, mipIndex, false);
-		return nullptr;
-	}
-	LatteTexture* sibling = texture->viewSibling;
-	if (sibling)
-		LatteView_SetSiblingValid(texture, sliceIndex, mipIndex, true);
-	return sibling;
+	// a clear is the same for both views
+	LatteView_SetSiblingValid(texture, sliceIndex, mipIndex, false);
+	return nullptr;
 }
 
 bool LatteView_OnTextureCopy(LatteTexture* src, sint32 srcSlice, sint32 srcMip, LatteTexture* dst, sint32 dstSlice, sint32 dstMip, LatteTexture*& srcSibling, LatteTexture*& dstSibling)
 {
-	if (src->isViewSibling || dst->isViewSibling)
+	if (src->isViewSibling || dst->isViewSibling || srcSlice >= src->depth || dstSlice >= dst->depth)
 		return false;
 	if (!s_isStereo || !LatteView_IsSiblingValid(src, srcSlice, srcMip))
 	{
@@ -179,11 +232,33 @@ static void LatteView_resetScopeState()
 {
 	s_rightDataEpoch++;
 	s_rightWords.clear();
+	s_rightWordRanges.clear();
 	s_rightBlocks.clear();
 	s_rightBlockArenaUsed = 0;
 	s_rightAluConstMask.reset();
 	s_rightAluConstCount[0] = 0;
 	s_rightAluConstCount[1] = 0;
+}
+
+void LatteView_SetMultiviewRequested(bool requested)
+{
+	s_multiviewRequested = requested;
+}
+
+bool LatteView_IsMultiviewRequested()
+{
+	return s_multiviewRequested;
+}
+
+bool LatteView_UsesMultiview(bool withGeometryShader)
+{
+#ifdef ENABLE_VULKAN
+	if (!s_multiviewRequested || !g_renderer || g_renderer->GetType() != RendererAPI::Vulkan)
+		return false;
+	return VulkanRenderer::GetInstance()->SupportsMultiview(withGeometryShader);
+#else
+	return false;
+#endif
 }
 
 bool LatteView_IsStereo()
@@ -211,6 +286,26 @@ void LatteView_itViewScope(const uint32be* data, uint32 nWords)
 	LatteView_resetScopeState();
 }
 
+static void LatteView_addRightWordRange(MPTR begin, MPTR end)
+{
+	auto it = std::lower_bound(s_rightWordRanges.begin(), s_rightWordRanges.end(), begin, [](const std::pair<MPTR, MPTR>& range, MPTR address) { return range.second < address; });
+	auto last = it;
+	while (last != s_rightWordRanges.end() && last->first <= end)
+	{
+		begin = std::min(begin, last->first);
+		end = std::max(end, last->second);
+		++last;
+	}
+	it = s_rightWordRanges.erase(it, last);
+	s_rightWordRanges.insert(it, { begin, end });
+}
+
+static bool LatteView_overlapsRightWords(MPTR begin, MPTR end)
+{
+	auto it = std::upper_bound(s_rightWordRanges.begin(), s_rightWordRanges.end(), begin, [](MPTR address, const std::pair<MPTR, MPTR>& range) { return address < range.second; });
+	return it != s_rightWordRanges.end() && it->first < end;
+}
+
 void LatteView_itViewMemWrite(const uint32be* data, uint32 nWords)
 {
 	if (!s_isStereo || nWords < 2)
@@ -220,6 +315,7 @@ void LatteView_itViewMemWrite(const uint32be* data, uint32 nWords)
 	RightWords& entry = s_rightWords.emplace_back();
 	entry.physAddr = physAddr;
 	entry.words.assign(data + 1, data + nWords);
+	LatteView_addRightWordRange(physAddr, physAddr + (nWords - 1) * 4);
 	for (auto it = s_rightBlocks.begin(); it != s_rightBlocks.end();)
 	{
 		uint32 wordsEnd = physAddr + (nWords - 1) * 4;
@@ -242,7 +338,7 @@ uint32 LatteView_GetRightDataEpoch()
 
 const uint8* LatteView_GetRightUniformBlock(MPTR physAddr, uint32 size)
 {
-	if (s_rightWords.empty() || physAddr == MPTR_NULL)
+	if (s_rightWords.empty() || physAddr == MPTR_NULL || !LatteView_overlapsRightWords(physAddr, physAddr + size))
 		return nullptr;
 	auto it = s_rightBlocks.find(physAddr);
 	if (it != s_rightBlocks.end() && it->second.size >= size)
@@ -274,6 +370,43 @@ const uint8* LatteView_GetRightUniformBlock(MPTR physAddr, uint32 size)
 	return block.data.empty() ? nullptr : block.data.data();
 }
 
+static MPTR LatteView_allocateArena(uint32 size)
+{
+	uint32 alignedSize = (size + 0xFF) & ~0xFF;
+	if (s_rightBlockArenaUsed + alignedSize > RIGHT_BLOCK_ARENA_SIZE)
+	{
+		cemuLog_logOnce(LogType::Force, "LatteView: Out of memory for right-view uniform buffers, the right view reads the left ones");
+		return MPTR_NULL;
+	}
+	MPTR physAddr = memory_virtualToPhysical(s_rightBlockArena.GetMPTR()) + s_rightBlockArenaUsed;
+	s_rightBlockArenaUsed += alignedSize;
+	return physAddr;
+}
+
+MPTR LatteView_GetUniformBufferPair(MPTR physAddr, uint32 size, uint32 stride)
+{
+	if (!s_isStereo || size > stride)
+		return MPTR_NULL;
+	const uint8* rightData = LatteView_GetRightUniformBlock(physAddr, size);
+	if (!rightData)
+		return MPTR_NULL;
+	RightBlock& block = s_rightBlocks[physAddr];
+	for (auto& it : block.pairCopies)
+	{
+		if (it.first == stride)
+			return it.second;
+	}
+	MPTR pairPhysAddr = LatteView_allocateArena(stride + size);
+	if (pairPhysAddr == MPTR_NULL)
+		return MPTR_NULL;
+	uint8* pair = memory_getPointerFromPhysicalOffset(pairPhysAddr);
+	memcpy(pair, memory_getPointerFromPhysicalOffset(physAddr), size);
+	memcpy(pair + stride, rightData, size);
+	LatteBufferCache_invalidate(pairPhysAddr, stride + size);
+	block.pairCopies.emplace_back(stride, pairPhysAddr);
+	return pairPhysAddr;
+}
+
 static MPTR LatteView_getRightUniformBlockCopy(MPTR physAddr, uint32 size)
 {
 	if (!LatteView_GetRightUniformBlock(physAddr, size))
@@ -281,14 +414,9 @@ static MPTR LatteView_getRightUniformBlockCopy(MPTR physAddr, uint32 size)
 	RightBlock& block = s_rightBlocks[physAddr];
 	if (block.copyPhysAddr != MPTR_NULL)
 		return block.copyPhysAddr;
-	uint32 alignedSize = (block.size + 0xFF) & ~0xFF;
-	if (s_rightBlockArenaUsed + alignedSize > RIGHT_BLOCK_ARENA_SIZE)
-	{
-		cemuLog_logOnce(LogType::Force, "LatteView: Out of memory for right-view uniform buffers, the right view reads the left ones");
+	MPTR copyPhysAddr = LatteView_allocateArena(block.size);
+	if (copyPhysAddr == MPTR_NULL)
 		return MPTR_NULL;
-	}
-	MPTR copyPhysAddr = memory_virtualToPhysical(s_rightBlockArena.GetMPTR()) + s_rightBlockArenaUsed;
-	s_rightBlockArenaUsed += alignedSize;
 	memcpy(memory_getPointerFromPhysicalOffset(copyPhysAddr), block.data.data(), block.size);
 	LatteBufferCache_invalidate(copyPhysAddr, block.size);
 	block.copyPhysAddr = copyPhysAddr;

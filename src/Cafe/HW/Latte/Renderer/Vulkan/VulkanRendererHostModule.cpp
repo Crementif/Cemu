@@ -141,6 +141,7 @@ void VulkanRenderer::HostModule_DispatchEvent(const HostModule::HostEvent& event
 	if (texture && LatteView_IsStereo() && LatteView_IsSiblingValid(texture, sliceIndex, 0))
 		vkRightTexture = (LatteTextureVk*)texture->viewSibling;
 	VkImageSubresourceLayers subresource{};
+	VkImageSubresourceLayers rightSubresource{};
 	moduleEvent.surface = nullptr;
 	moduleEvent.rightSurface = nullptr;
 	if (vkTexture)
@@ -155,9 +156,11 @@ void VulkanRenderer::HostModule_DispatchEvent(const HostModule::HostEvent& event
 		moduleEvent.surface = &surface;
 		if (vkRightTexture)
 		{
+			rightSubresource = subresource;
+			rightSubresource.baseArrayLayer = LatteView_GetSiblingSlice(texture, sliceIndex);
 			vkRightTexture->GetImageObj()->flagForCurrentCommandBuffer();
-			barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkRightTexture, subresource, VK_IMAGE_LAYOUT_GENERAL);
-			rightSurface = HostModule_GetSurface(vkRightTexture, sliceIndex);
+			barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkRightTexture, rightSubresource, VK_IMAGE_LAYOUT_GENERAL);
+			rightSurface = HostModule_GetSurface(vkRightTexture, rightSubresource.baseArrayLayer);
 			moduleEvent.rightSurface = &rightSurface;
 		}
 	}
@@ -168,7 +171,7 @@ void VulkanRenderer::HostModule_DispatchEvent(const HostModule::HostEvent& event
 	if (vkTexture)
 		barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkTexture, subresource, vkTexture->GetDefaultLayout());
 	if (vkRightTexture)
-		barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkRightTexture, subresource, vkRightTexture->GetDefaultLayout());
+		barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkRightTexture, rightSubresource, vkRightTexture->GetDefaultLayout());
 	HostModule_ResetCommandBufferState();
 }
 

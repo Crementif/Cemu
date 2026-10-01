@@ -91,6 +91,8 @@ struct VulkanViewState
 {
 bool isStereo{};
 	bool isRecording{};
+	bool drawNeedsRight{};
+	bool hasNoRightPass{};
 	bool restoreBindings{};
 	bool hasRightPass{};
 	VkRenderPass renderPass{};
@@ -138,6 +140,13 @@ bool isStereo{};
 	};
 	std::unordered_map<VkDescriptorSetInfo*, RightDescriptorSet> rightDescriptorSets;
 	std::unordered_set<VkDescriptorSetInfo*> knownRightDescriptorSets;
+	// multiview
+	CachedFBOVk* guestFBO{};
+	bool isMultiviewFBO{};
+	bool buildPairDescriptorSet{};
+	std::unordered_map<CachedFBOVk*, CachedFBOVk*> multiviewFBOs;
+	std::unordered_map<VkDescriptorSetInfo*, RightDescriptorSet> pairDescriptorSets;
+	std::unordered_set<VkDescriptorSetInfo*> knownPairDescriptorSets;
 	std::vector<LatteQueryObjectVk*> suspendedQueries;
 	VulkanViewUniformData uniformData[(size_t)LatteConst::ShaderType::TotalCount];
 };

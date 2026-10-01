@@ -10,6 +10,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #endif
 #include "Cafe/GraphicPack/GraphicPack2.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "HW/Latte/Core/Latte.h"
 #include "HW/Latte/Renderer/Renderer.h"
 #include "config/ActiveSettings.h"
@@ -737,6 +738,7 @@ static void InitUniformLayoutFromDecompiler(
         shader->uniform.loc_streamoutBufferBase[t] = offsets.offset_streamoutBufferBase[t];
     }
 
+    shader->uniform.loc_viewMask = offsets.offset_viewMask;
     shader->uniform.uniformRangeSize = offsets.offset_endOfBlock;
 }
 
@@ -792,7 +794,7 @@ LatteDecompilerShader* LatteShader_CreateShaderFromDecompilerOutput(LatteDecompi
 	return shader;
 }
 
-void LatteShader_GetDecompilerOptions(LatteDecompilerOptions& options, LatteConst::ShaderType shaderType, bool geometryShaderEnabled)
+void LatteShader_GetDecompilerOptions(LatteDecompilerOptions& options, LatteConst::ShaderType shaderType, bool geometryShaderEnabled, uint64 baseHash)
 {
 	options.usesGeometryShader = geometryShaderEnabled;
 	options.spirvInstrinsics.hasRoundingModeRTEFloat32 = false;
@@ -804,6 +806,9 @@ void LatteShader_GetDecompilerOptions(LatteDecompilerOptions& options, LatteCons
 	}
 #endif
 	options.strictMul = g_current_game_profile->GetAccurateShaderMul() != AccurateShaderMulOption::False;
+	// replacement shaders don't know about view arrays
+	GraphicPack2::GP_SHADER_TYPE gpShaderType = shaderType == LatteConst::ShaderType::Vertex ? GraphicPack2::GP_SHADER_TYPE::VERTEX : shaderType == LatteConst::ShaderType::Geometry ? GraphicPack2::GP_SHADER_TYPE::GEOMETRY : GraphicPack2::GP_SHADER_TYPE::PIXEL;
+	options.viewArrays = LatteView_UsesMultiview(shaderType == LatteConst::ShaderType::Geometry || geometryShaderEnabled) && !GraphicPack2::HasCustomShaderForBaseHash(baseHash, gpShaderType);
 }
 
 LatteDecompilerShader* LatteShader_CompileSeparableVertexShader2(uint64 baseHash, uint64& vsAuxHash, uint8* vertexShaderPtr, uint32 vertexShaderSize, bool usesGeometryShader, LatteFetchShader* fetchShader)
@@ -861,7 +866,7 @@ LatteDecompilerShader* LatteShader_CompileSeparableVertexShader(uint64 baseHash,
 
 	// legacy decompiler
 	LatteDecompilerOptions options;
-	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Vertex, usesGeometryShader);
+	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Vertex, usesGeometryShader, baseHash);
 
 	LatteDecompilerOutput_t decompilerOutput{};
 	LatteDecompiler_DecompileVertexShader(_shaderBaseHash_vs, LatteGPUState.contextRegister, vertexShaderPtr, vertexShaderSize, fetchShader, options, &decompilerOutput);
@@ -894,7 +899,7 @@ LatteDecompilerShader* LatteShader_CompileSeparableVertexShader(uint64 baseHash,
 LatteDecompilerShader* LatteShader_CompileSeparableGeometryShader(uint64 baseHash, uint8* geometryShaderPtr, uint32 geometryShaderSize, uint8* geometryCopyShader, uint32 geometryCopyShaderSize, LatteDecompilerShader* vertexShader)
 {
 	LatteDecompilerOptions options;
-	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Geometry, true);
+	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Geometry, true, baseHash);
 
 	LatteDecompilerOutput_t decompilerOutput{};
 	LatteDecompiler_DecompileGeometryShader(_shaderBaseHash_gs, LatteGPUState.contextRegister, geometryShaderPtr, geometryShaderSize, geometryCopyShader, geometryCopyShaderSize, vertexShader->ringParameterCount, options, &decompilerOutput);
@@ -925,7 +930,7 @@ LatteDecompilerShader* LatteShader_CompileSeparableGeometryShader(uint64 baseHas
 LatteDecompilerShader* LatteShader_CompileSeparablePixelShader(uint64 baseHash, uint64& psAuxHash, uint8* pixelShaderPtr, uint32 pixelShaderSize, bool usesGeometryShader)
 {
 	LatteDecompilerOptions options;
-	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Pixel, usesGeometryShader);
+	LatteShader_GetDecompilerOptions(options, LatteConst::ShaderType::Pixel, usesGeometryShader, baseHash);
 
 	LatteDecompilerOutput_t decompilerOutput{};
 	LatteDecompiler_DecompilePixelShader(baseHash, LatteGPUState.contextRegister, pixelShaderPtr, pixelShaderSize, options, &decompilerOutput);

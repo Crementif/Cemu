@@ -570,6 +570,8 @@ namespace LatteDecompiler
 
 		if (decompilerContext->shaderType == LatteConst::ShaderType::Vertex && hasAnyViewportScaleDisabled)
 			decompilerContext->hasUniformVarBlock = true; // uf_windowSpaceToClipSpaceTransform
+		if (decompilerContext->options->viewArrays && decompilerContext->shader->uniformMode == LATTE_DECOMPILER_UNIFORM_MODE_FULL_CBANK)
+			decompilerContext->hasUniformVarBlock = true; // uf_viewMask
 		bool alphaTestEnable = decompilerContext->contextRegistersNew->SX_ALPHA_TEST_CONTROL.get_ALPHA_TEST_ENABLE();
 		if (decompilerContext->shaderType == LatteConst::ShaderType::Pixel && alphaTestEnable != 0)
 			decompilerContext->hasUniformVarBlock = true; // uf_alphaTestRef
