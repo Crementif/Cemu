@@ -49,7 +49,7 @@ function(cemu_use_precompiled_header target_name)
 	if(MSVC)
 		target_precompile_headers(${target_name} REUSE_FROM CemuCommon)
 	else()
-		target_precompile_headers(${target_name} PRIVATE "${CMAKE_SOURCE_DIR}/src/Common/precompiled.h")
+		target_precompile_headers(${target_name} PRIVATE "${Cemu_SOURCE_DIR}/src/Common/precompiled.h")
 	endif()
 endfunction()
 
@@ -99,7 +99,7 @@ set(OUTPUT_NAME "Cemu_$<LOWER_CASE:$<CONFIG>>")
 if (MACOS_BUNDLE)
 	set_property(TARGET CemuBin PROPERTY MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/MacOSXBundleInfo.plist.in")
 
-	set(RESOURCE_FILES "${CMAKE_SOURCE_DIR}/src/resource/cemu.icns")
+	set(RESOURCE_FILES "${Cemu_SOURCE_DIR}/src/resource/cemu.icns")
 	target_sources(CemuBin PRIVATE "${RESOURCE_FILES}")
 
 	set(MACOSX_BUNDLE_ICON_FILE "cemu.icns")
@@ -121,7 +121,7 @@ if (MACOS_BUNDLE)
 	set(FOLDERS gameProfiles resources)
 	foreach(folder ${FOLDERS})
 		add_custom_command (TARGET CemuBin POST_BUILD
-			COMMAND ${CMAKE_COMMAND} ARGS -E copy_directory "${CMAKE_SOURCE_DIR}/bin/${folder}" "$<TARGET_BUNDLE_DIR:CemuBin>/Contents/SharedSupport/${folder}")
+			COMMAND ${CMAKE_COMMAND} ARGS -E copy_directory "${Cemu_SOURCE_DIR}/bin/${folder}" "$<TARGET_BUNDLE_DIR:CemuBin>/Contents/SharedSupport/${folder}")
 	endforeach(folder)
 
 	if (ENABLE_VULKAN)
