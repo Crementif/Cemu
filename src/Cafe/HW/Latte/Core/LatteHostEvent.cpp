@@ -2,6 +2,7 @@
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LattePM4.h"
 #include "Cafe/HW/Latte/Core/LatteTexture.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/HW/Latte/ISA/LatteReg.h"
 #include "Cafe/HostModule/HostModule.h"
 
@@ -96,9 +97,13 @@ bool LatteHostEvent_itViewAluConst(const uint32be* data, uint32 nWords, bool& is
 		return false;
 	uint32 registerOffset = data[0];
 	uint32 count = data[1];
-	MPTR slot = s_hostEventCurrentView == 0 ? (MPTR)data[2] : (MPTR)data[3];
+	// the registers get the left values, the right view keeps its own
+	bool isStereo = LatteView_IsStereo();
+	MPTR slot = (s_hostEventCurrentView == 0 || isStereo) ? (MPTR)data[2] : (MPTR)data[3];
 	if (slot == MPTR_NULL || count == 0 || (registerOffset + count) > 0x800)
 		return false;
+	if (isStereo && (MPTR)data[3] != MPTR_NULL)
+		LatteView_SetRightAluConst(registerOffset, count, (const uint32be*)memory_getPointerFromPhysicalOffset((MPTR)data[3]));
 
 	const uint32be* values = (const uint32be*)memory_getPointerFromPhysicalOffset(slot);
 	uint32* registers = LatteGPUState.contextRegister + LATTE_REG_BASE_ALU_CONST + registerOffset;

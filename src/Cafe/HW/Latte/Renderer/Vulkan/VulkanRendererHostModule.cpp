@@ -2,6 +2,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureVk.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/LatteTextureViewVk.h"
 #include "Cafe/HostModule/HostModule.h"
+#include "Cafe/HW/Latte/Core/LatteView.h"
 
 VkResult VulkanRenderer::HostModule_CreateInstance(const VkInstanceCreateInfo& createInfo, VkInstance& instance, bool& createdByModule)
 {
@@ -134,27 +135,40 @@ void VulkanRenderer::HostModule_DispatchEvent(const HostModule::HostEvent& event
 
 	HostModule::HostEvent moduleEvent = event;
 	HostModule::EventSurface surface{};
+	HostModule::EventSurface rightSurface{};
 	LatteTextureVk* vkTexture = (LatteTextureVk*)texture;
+	LatteTextureVk* vkRightTexture = nullptr;
+	if (texture && LatteView_IsStereo() && LatteView_IsSiblingValid(texture, sliceIndex, 0))
+		vkRightTexture = (LatteTextureVk*)texture->viewSibling;
 	VkImageSubresourceLayers subresource{};
+	moduleEvent.surface = nullptr;
+	moduleEvent.rightSurface = nullptr;
 	if (vkTexture)
 	{
-		vkTexture->GetImageObj()->flagForCurrentCommandBuffer();
 		subresource.aspectMask = vkTexture->GetImageAspect();
 		subresource.mipLevel = 0;
 		subresource.baseArrayLayer = sliceIndex;
 		subresource.layerCount = 1;
+		vkTexture->GetImageObj()->flagForCurrentCommandBuffer();
 		barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkTexture, subresource, VK_IMAGE_LAYOUT_GENERAL);
 		surface = HostModule_GetSurface(vkTexture, sliceIndex);
 		moduleEvent.surface = &surface;
+		if (vkRightTexture)
+		{
+			vkRightTexture->GetImageObj()->flagForCurrentCommandBuffer();
+			barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkRightTexture, subresource, VK_IMAGE_LAYOUT_GENERAL);
+			rightSurface = HostModule_GetSurface(vkRightTexture, sliceIndex);
+			moduleEvent.rightSurface = &rightSurface;
+		}
 	}
-	else
-		moduleEvent.surface = nullptr;
 
 	for (auto& module : HostModule::GetModules())
 		module->OnHostEvent(moduleEvent, m_state.currentCommandBuffer);
 
 	if (vkTexture)
 		barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkTexture, subresource, vkTexture->GetDefaultLayout());
+	if (vkRightTexture)
+		barrier_image<ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE, ANY_TRANSFER | IMAGE_READ | IMAGE_WRITE>(vkRightTexture, subresource, vkRightTexture->GetDefaultLayout());
 	HostModule_ResetCommandBufferState();
 }
 

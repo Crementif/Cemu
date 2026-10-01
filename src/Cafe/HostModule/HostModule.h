@@ -54,6 +54,7 @@ namespace HostModule
 		uint32_t id;
 		uint32_t params[4];
 		const EventSurface* surface;
+		const EventSurface* rightSurface; // null if it's the same as surface
 	};
 
 	struct SubmitSemaphore

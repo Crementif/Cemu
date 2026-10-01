@@ -16,7 +16,9 @@ LatteTextureView::LatteTextureView(LatteTexture* texture, sint32 firstMip, sint3
 	if (registerView)
 	{
 		texture->views.emplace_back(this);
-		LatteTextureViewLookupCache::Add(this);
+		// siblings are only found through their texture
+		if (!texture->isViewSibling)
+			LatteTextureViewLookupCache::Add(this);
 	}
 }
 

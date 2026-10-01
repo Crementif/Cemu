@@ -142,6 +142,8 @@ public:
 
 	// todo - move this into FBO destructor (?)
 	static void DeleteCachedFBO(LatteCachedFBO* cfbo);
+	// only for two-view rendering, never cached or bound
+	static LatteCachedFBO* CreateDetachedCachedFBO(LatteTextureView* const* colorViews, LatteTextureView* depthView, bool hasStencil);
 
 private:
 	static LatteCachedFBO* CreateCachedFBO(uint64 key);
