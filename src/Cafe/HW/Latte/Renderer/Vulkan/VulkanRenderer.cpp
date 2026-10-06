@@ -2234,6 +2234,7 @@ void VulkanRenderer::WaitForNextFinishedCommandBuffer()
 
 void VulkanRenderer::SubmitCommandBuffer(VkSemaphore signalSemaphore, VkSemaphore waitSemaphore)
 {
+	bufferCache_flushCopies();
 	draw_endRenderPass();
 
 	vkEndCommandBuffer(m_state.currentCommandBuffer);
@@ -3845,6 +3846,10 @@ uint64 VulkanRenderer::GenUniqueId()
 
 void VulkanRenderer::streamout_setupXfbBuffer(uint32 bufferIndex, sint32 ringBufferOffset, uint32 rangeAddr, uint32 rangeSize)
 {
+	// pending copies might still read from the ring when it wraps
+	if (ringBufferOffset < m_lastXfbRingBufferOffset)
+		bufferCache_flushCopies();
+	m_lastXfbRingBufferOffset = ringBufferOffset;
 	VkDeviceSize tfBufferOffset = ringBufferOffset;
 	m_streamoutState.buffer[bufferIndex].enabled = true;
 	m_streamoutState.buffer[bufferIndex].ringBufferOffset = ringBufferOffset;
@@ -3873,6 +3878,7 @@ void VulkanRenderer::buffer_bindVertexBuffers(std::span<BindBufferParam> binding
 		m_state.currentVertexBinding[binding.index].offset = binding.bindOffset;
 		VkDeviceSize bindOffset = binding.bindOffset;
 		vkCmdBindVertexBuffers(m_state.currentCommandBuffer, binding.index, 1, &buffer, &bindOffset);
+		m_boundVertexRanges[binding.index] = { binding.bindOffset, binding.bindSize };
 		m_view.vertexBinding[binding.index].buffer = buffer;
 		m_view.vertexBinding[binding.index].offset = bindOffset;
 	}
@@ -3914,6 +3920,7 @@ void VulkanRenderer::buffer_bindUniformBuffer(LatteConst::ShaderType shaderType,
 {
 	cemu_assert_debug(!m_useHostMemoryForCache);
 	cemu_assert_debug(bufferIndex < 16);
+	m_boundUniformRanges[(uint32)shaderType][bufferIndex] = { offset, size };
 	switch (shaderType)
 	{
 	case LatteConst::ShaderType::Vertex:
@@ -3951,10 +3958,92 @@ void VulkanRenderer::bufferCache_init(const sint32 bufferSize)
 		memoryManager->CreateBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, m_bufferCache, m_bufferCacheMemory);
 }
 
-void VulkanRenderer::bufferCache_upload(uint8* buffer, sint32 size, uint32 bufferOffset)
+void VulkanRenderer::bufferCache_queueCopy(VkBuffer srcBuffer, VkDeviceSize srcOffset, uint32 dstOffset, uint32 size)
 {
+	// copies in one batch run in no particular order
+	for (const BufferCacheCopy& copy : m_pendingBufferCacheCopies)
+	{
+		if (dstOffset < copy.dstOffset + copy.size && copy.dstOffset < dstOffset + size)
+		{
+			bufferCache_flushCopies();
+			break;
+		}
+	}
+	m_pendingBufferCacheCopies.push_back({ srcBuffer, srcOffset, dstOffset, size });
+	if (srcBuffer != m_xfbRingBuffer)
+		m_hasPendingBufferCacheUploads = true;
+}
+
+void VulkanRenderer::bufferCache_flushCopies()
+{
+	if (m_pendingBufferCacheCopies.empty())
+		return;
 	draw_endRenderPass();
 
+	VkMemoryBarrier memoryBarrier{};
+	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+	memoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+	memoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+	const VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+	vkCmdPipelineBarrier(m_state.currentCommandBuffer, srcStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+
+	std::stable_sort(m_pendingBufferCacheCopies.begin(), m_pendingBufferCacheCopies.end(), [](const BufferCacheCopy& a, const BufferCacheCopy& b) { return a.srcBuffer < b.srcBuffer; });
+	for (size_t i = 0; i < m_pendingBufferCacheCopies.size();)
+	{
+		const VkBuffer srcBuffer = m_pendingBufferCacheCopies[i].srcBuffer;
+		m_bufferCacheCopyRegions.clear();
+		for (; i < m_pendingBufferCacheCopies.size() && m_pendingBufferCacheCopies[i].srcBuffer == srcBuffer; i++)
+		{
+			const BufferCacheCopy& copy = m_pendingBufferCacheCopies[i];
+			m_bufferCacheCopyRegions.push_back({ copy.srcOffset, copy.dstOffset, copy.size });
+		}
+		vkCmdCopyBuffer(m_state.currentCommandBuffer, srcBuffer, m_bufferCache, (uint32)m_bufferCacheCopyRegions.size(), m_bufferCacheCopyRegions.data());
+	}
+	m_pendingBufferCacheCopies.clear();
+	m_hasPendingBufferCacheUploads = false;
+
+	barrier_sequentializeTransfer();
+}
+
+bool VulkanRenderer::bufferCache_isPendingCopyBound() const
+{
+	auto overlapsPending = [this](uint32 offset, uint32 size) {
+		for (const BufferCacheCopy& copy : m_pendingBufferCacheCopies)
+		{
+			if (offset < copy.dstOffset + copy.size && copy.dstOffset < offset + size)
+				return true;
+		}
+		return false;
+	};
+	for (const BufferCacheRange& range : m_boundVertexRanges)
+	{
+		if (range.size != 0 && overlapsPending(range.offset, range.size))
+			return true;
+	}
+	for (uint32 stage = 0; stage < 3; stage++)
+	{
+		for (uint32 i = 0; i < LATTE_NUM_MAX_UNIFORM_BUFFERS; i++)
+		{
+			const BufferCacheRange& range = m_boundUniformRanges[stage][i];
+			if (range.size == 0)
+				continue;
+			if (overlapsPending(range.offset, range.size) || overlapsPending(LatteView_GetRightUniformBufferOffset((LatteConst::ShaderType)stage, i), range.size))
+				return true;
+		}
+	}
+	return false;
+}
+
+void VulkanRenderer::bufferCache_flushCopiesForDraw()
+{
+	if (m_pendingBufferCacheCopies.empty())
+		return;
+	if (m_hasPendingBufferCacheUploads || bufferCache_isPendingCopyBound())
+		bufferCache_flushCopies();
+}
+
+void VulkanRenderer::bufferCache_upload(uint8* buffer, sint32 size, uint32 bufferOffset)
+{
 	VKRSynchronizedRingAllocator& vkMemAllocator = memoryManager->getStagingAllocator();
 
 	auto uploadResv = vkMemAllocator.AllocateBufferMemory(size, 256);
@@ -3962,23 +4051,13 @@ void VulkanRenderer::bufferCache_upload(uint8* buffer, sint32 size, uint32 buffe
 
 	vkMemAllocator.FlushReservation(uploadResv);
 
-	barrier_bufferRange<ANY_TRANSFER | HOST_WRITE, ANY_TRANSFER,
-		BUFFER_SHADER_READ, TRANSFER_WRITE>(
-			uploadResv.vkBuffer, uploadResv.bufferOffset, uploadResv.size, // make sure any in-flight transfers are completed
-			m_bufferCache, bufferOffset, size); // make sure all reads are completed before we overwrite the data
-
-	VkBufferCopy region;
-	region.srcOffset = uploadResv.bufferOffset;
-	region.dstOffset = bufferOffset;
-	region.size = size;
-	vkCmdCopyBuffer(m_state.currentCommandBuffer, uploadResv.vkBuffer, m_bufferCache, 1, &region);
-
-	barrier_sequentializeTransfer();
+	bufferCache_queueCopy(uploadResv.vkBuffer, uploadResv.bufferOffset, bufferOffset, size);
 }
 
 void VulkanRenderer::bufferCache_copy(uint32 srcOffset, uint32 dstOffset, uint32 size)
 {
 	cemu_assert_debug(!m_useHostMemoryForCache);
+	bufferCache_flushCopies();
 	draw_endRenderPass();
 
 	barrier_sequentializeTransfer();
@@ -3997,6 +4076,11 @@ void VulkanRenderer::bufferCache_copy(uint32 srcOffset, uint32 dstOffset, uint32
 
 void VulkanRenderer::bufferCache_copyStreamoutToMainBuffer(uint32 srcOffset, uint32 dstOffset, uint32 size)
 {
+	if (!m_useHostMemoryForCache)
+	{
+		bufferCache_queueCopy(m_xfbRingBuffer, srcOffset, dstOffset, size);
+		return;
+	}
 	draw_endRenderPass();
 
 	VkBuffer dstBuffer;

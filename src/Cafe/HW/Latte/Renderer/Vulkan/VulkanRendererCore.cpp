@@ -1506,6 +1506,7 @@ void VulkanRenderer::draw_execute_first(uint32 baseVertex, uint32 baseInstance, 
 		// synchronize vertex and uniform cache and update buffer bindings
 		uint8 stageUniformModifiedMask = 0;
 		LatteBufferCache_Sync(indexMax + baseVertex, baseInstance, instanceCount, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, stageUniformModifiedMask);
+		bufferCache_flushCopiesForDraw();
 	}
 
 	PipelineInfo* pipeline_info = draw_getOrCreateGraphicsPipeline(count);
@@ -1682,6 +1683,7 @@ void VulkanRenderer::draw_execute_continued(uint32 baseVertex, uint32 baseInstan
 	{
 		// synchronize vertex and uniform cache and update buffer bindings
 		LatteBufferCache_Sync(indexMax + baseVertex, baseInstance, instanceCount, drawcallContext.vertexBufferDirtyMask, drawcallContext.vsUniformBufferDirtyMask, drawcallContext.psUniformBufferDirtyMask, drawcallContext.gsUniformBufferDirtyMask, stageUniformModifiedMask, true);
+		bufferCache_flushCopiesForDraw();
 	}
 
 	m_state.descriptorSetsChanged = false;

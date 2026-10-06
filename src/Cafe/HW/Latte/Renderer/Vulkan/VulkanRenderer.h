@@ -339,6 +339,8 @@ public:
 	void bufferCache_init(const sint32 bufferSize) override;
 	void bufferCache_upload(uint8* buffer, sint32 size, uint32 bufferOffset) override;
 	void bufferCache_copy(uint32 srcOffset, uint32 dstOffset, uint32 size) override;
+	void bufferCache_flushCopies();
+	void bufferCache_flushCopiesForDraw();
 
 	void buffer_bindVertexBuffers(std::span<BindBufferParam> bindings) override;
 	void buffer_bindVertexStrideWorkaroundBuffer(VkBuffer fixedBuffer, uint32 offset, uint32 bufferIndex, uint32 size);
@@ -592,6 +594,29 @@ private:
 	void streamout_begin() override;
 	void bufferCache_copyStreamoutToMainBuffer(uint32 srcOffset, uint32 dstOffset, uint32 size) override;
 	void streamout_rendererFinishDrawcall() override;
+
+	// queued up so they share one barrier
+	struct BufferCacheCopy
+	{
+		VkBuffer srcBuffer;
+		VkDeviceSize srcOffset;
+		uint32 dstOffset;
+		uint32 size;
+	};
+	std::vector<BufferCacheCopy> m_pendingBufferCacheCopies;
+	std::vector<VkBufferCopy> m_bufferCacheCopyRegions;
+	bool m_hasPendingBufferCacheUploads{};
+	sint32 m_lastXfbRingBufferOffset{};
+	void bufferCache_queueCopy(VkBuffer srcBuffer, VkDeviceSize srcOffset, uint32 dstOffset, uint32 size);
+
+	struct BufferCacheRange
+	{
+		uint32 offset;
+		uint32 size;
+	};
+	BufferCacheRange m_boundVertexRanges[Latte::GPU_LIMITS::NUM_VERTEX_BUFFERS]{};
+	BufferCacheRange m_boundUniformRanges[3][LATTE_NUM_MAX_UNIFORM_BUFFERS]{};
+	bool bufferCache_isPendingCopyBound() const;
 
 	// occlusion queries
 	LatteQueryObject* occlusionQuery_create() override;
