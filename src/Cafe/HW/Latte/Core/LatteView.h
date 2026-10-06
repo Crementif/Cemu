@@ -12,6 +12,7 @@ void LatteView_itSetAluConst(const uint32be* data, uint32 nWords);
 void LatteView_itLoadAluConst(const uint32be* data, uint32 nWords);
 
 bool LatteView_IsStereo();
+bool LatteView_IsMonoSection();
 
 // has to be set before any shader gets decompiled
 void LatteView_SetMultiviewRequested(bool requested);

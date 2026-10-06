@@ -18,6 +18,11 @@ void VulkanRenderer::view_setStereo(bool isStereo)
 	m_view.isStereo = isStereo;
 }
 
+void VulkanRenderer::view_setMonoSection()
+{
+	draw_endRenderPass();
+}
+
 LatteTextureView* VulkanRenderer::view_getSiblingView(LatteTextureView* view, bool forAttachment)
 {
 	LatteTexture* texture = view->baseTexture;
@@ -640,7 +645,7 @@ void VulkanRenderer::view_selectFBO(bool& isFirst)
 // skip draws where the right view would end up the same as the left
 bool VulkanRenderer::view_drawNeedsRight()
 {
-	if (!m_view.guestFBO)
+	if (!m_view.guestFBO || LatteView_IsMonoSection())
 		return false;
 	auto hasValidSibling = [](LatteTextureView* view) {
 		return view && LatteView_IsSiblingValid(view->baseTexture, view->firstSlice, view->firstMip);
