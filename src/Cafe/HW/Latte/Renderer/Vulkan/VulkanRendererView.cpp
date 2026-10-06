@@ -150,11 +150,12 @@ void VulkanRenderer::view_prepareRightPass(CachedFBOVk* leftFBO)
 		return;
 	}
 	m_view.rightFBO = rightFBO;
+	VKRObjectFramebuffer* framebuffer = rightFBO->GetFramebufferObj(foveation_getPattern(true));
 	m_view.renderPass = rightFBO->GetRenderPassObj()->m_renderPass;
-	m_view.framebuffer = rightFBO->GetFramebufferObj()->m_frameBuffer;
+	m_view.framebuffer = framebuffer->m_frameBuffer;
 	m_view.extent = rightFBO->GetExtend();
 	rightFBO->GetRenderPassObj()->flagForCurrentCommandBuffer();
-	rightFBO->GetFramebufferObj()->flagForCurrentCommandBuffer();
+	framebuffer->flagForCurrentCommandBuffer();
 	for (auto& tex : rightFBO->GetTextures())
 		((LatteTextureVk*)tex)->GetImageObj()->flagForCurrentCommandBuffer();
 	if (m_featureControl.deviceExtensions.dynamic_rendering)

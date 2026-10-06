@@ -126,6 +126,9 @@ void VulkanPipelineStableCache::Close()
     }
 }
 
+// multiview never uses view 31
+constexpr uint32 CACHED_SHADING_RATE_BIT = 0x80000000;
+
 struct CachedPipeline
 {
 	struct ShaderHash
@@ -147,6 +150,7 @@ struct CachedPipeline
 	ShaderHash psHash;
 
 	uint32 viewMask{};
+	bool hasShadingRate{};
 	Latte::GPUCompactedRegisterState gpuState;
 };
 
@@ -168,9 +172,10 @@ void __getDepthBufferVkFormat(const LatteContextRegister& lcr, VkFormat& dbForma
 }
 
 // create placeholder renderpass for cached pipeline
-VKRObjectRenderPass* __CreateTemporaryRenderPass(const LatteDecompilerShader* pixelShader, const LatteContextRegister& lcr, uint32 viewMask)
+VKRObjectRenderPass* __CreateTemporaryRenderPass(const LatteDecompilerShader* pixelShader, const LatteContextRegister& lcr, uint32 viewMask, bool hasShadingRate)
 {
 	VKRObjectRenderPass::AttachmentInfo_t attachmentInfo;
+	attachmentInfo.hasShadingRate = hasShadingRate;
 
 	uint8 cbMask = LatteMRT::GetActiveColorBufferMask(pixelShader, lcr);
 	bool dbMask = LatteMRT::GetActiveDepthBufferMask(lcr);
@@ -271,7 +276,15 @@ void VulkanPipelineStableCache::LoadPipelineFromCache(std::span<uint8> fileData)
 		cemu_assert_debug(false);
 		return;
 	}
-	auto renderPass = __CreateTemporaryRenderPass(pixelShader, *lcr, cachedPipeline->viewMask);
+	if (cachedPipeline->hasShadingRate && !VulkanRenderer::GetInstance()->SupportsShadingRateAttachments())
+	{
+		s_spinlockSharedInternal.lock();
+		delete lcr;
+		delete cachedPipeline;
+		s_spinlockSharedInternal.unlock();
+		return;
+	}
+	auto renderPass = __CreateTemporaryRenderPass(pixelShader, *lcr, cachedPipeline->viewMask, cachedPipeline->hasShadingRate);
 	// create pipeline info
 	m_pipelineIsCachedLock.lock();
 	PipelineInfo* pipelineInfo = new PipelineInfo(0, 0, vertexShader->compatibleFetchShader, vertexShader, pixelShader, geometryShader);
@@ -313,7 +326,7 @@ bool VulkanPipelineStableCache::HasPipelineCached(uint64 baseHash, uint64 pipeli
 
 ConcurrentQueue<CachedPipeline*> g_pipelineCachingQueue;
 
-void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 pipelineStateHash, uint32 viewMask)
+void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 pipelineStateHash, uint32 viewMask, bool hasShadingRate)
 {
 	m_pipelineIsCached.emplace(baseHash, pipelineStateHash);
 	if (!m_pipelineCacheStoreThread)
@@ -336,6 +349,7 @@ void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 p
 	if (ps)
 		job->psHash.set(ps->baseHash, ps->auxHash);
 	job->viewMask = viewMask;
+	job->hasShadingRate = hasShadingRate;
 	Latte::StoreGPURegisterState(LatteGPUState.contextNew, job->gpuState);
 	// queue job
 	g_pipelineCachingQueue.push(job);
@@ -344,7 +358,8 @@ void VulkanPipelineStableCache::AddCurrentStateToCache(uint64 baseHash, uint64 p
 bool VulkanPipelineStableCache::SerializePipeline(MemStreamWriter& memWriter, CachedPipeline& cachedPipeline)
 {
 	// only use version 2 when needed, so upstream Cemu can still read the cache
-	memWriter.writeBE<uint8>(cachedPipeline.viewMask != 0 ? 0x02 : 0x01);
+	uint32 viewMaskAndFlags = cachedPipeline.viewMask | (cachedPipeline.hasShadingRate ? CACHED_SHADING_RATE_BIT : 0);
+	memWriter.writeBE<uint8>(viewMaskAndFlags != 0 ? 0x02 : 0x01);
 	uint8 presentMask = 0;
 	if (cachedPipeline.vsHash.isPresent)
 		presentMask |= 1;
@@ -368,8 +383,8 @@ bool VulkanPipelineStableCache::SerializePipeline(MemStreamWriter& memWriter, Ca
 		memWriter.writeBE<uint64>(cachedPipeline.psHash.baseHash);
 		memWriter.writeBE<uint64>(cachedPipeline.psHash.auxHash);
 	}
-	if (cachedPipeline.viewMask != 0)
-		memWriter.writeBE<uint32>(cachedPipeline.viewMask);
+	if (viewMaskAndFlags != 0)
+		memWriter.writeBE<uint32>(viewMaskAndFlags);
 	Latte::SerializeRegisterState(cachedPipeline.gpuState, memWriter);
 	return true;
 }
@@ -403,7 +418,9 @@ bool VulkanPipelineStableCache::DeserializePipeline(MemStreamReader& memReader, 
 		uint64 auxHash = memReader.readBE<uint64>();
 		cachedPipeline.psHash.set(baseHash, auxHash);
 	}
-	cachedPipeline.viewMask = version >= 2 ? memReader.readBE<uint32>() : 0;
+	uint32 viewMaskAndFlags = version >= 2 ? memReader.readBE<uint32>() : 0;
+	cachedPipeline.viewMask = viewMaskAndFlags & ~CACHED_SHADING_RATE_BIT;
+	cachedPipeline.hasShadingRate = (viewMaskAndFlags & CACHED_SHADING_RATE_BIT) != 0;
 	// deserialize GPU state
 	if (!Latte::DeserializeRegisterState(cachedPipeline.gpuState, memReader))
 	{
