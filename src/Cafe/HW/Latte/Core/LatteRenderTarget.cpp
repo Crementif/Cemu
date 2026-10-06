@@ -756,7 +756,7 @@ void LatteRenderTarget_trackUpdates()
 		LatteTextureView* texView = sLatteRenderTargetState.rtUpdateList[i];
 		LatteTexture* baseTexture = texView->baseTexture;
 		LatteTexture_TrackTextureGPUWrite(baseTexture, texView->firstSlice, texView->firstMip, eventCounter);
-		if (!LatteView_IsStereo())
+		if (!LatteView_IsStereo() || LatteView_IsMonoSection())
 			LatteView_SetSiblingValid(baseTexture, texView->firstSlice, texView->firstMip, false);
 		// texture readback
 		if (baseTexture->enableReadback)

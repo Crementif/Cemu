@@ -15,9 +15,12 @@ enum class ViewScopeMode : uint32
 {
 	Mono = 0,
 	Stereo = 1,
+	MonoSectionBegin = 2,
+	MonoSectionEnd = 3,
 };
 
 static bool s_isStereo = false;
+static bool s_isMonoSection = false;
 static bool s_multiviewRequested = false;
 static uint32 s_renderTargetCreationDepth = 0;
 
@@ -214,7 +217,7 @@ bool LatteView_OnTextureCopy(LatteTexture* src, sint32 srcSlice, sint32 srcMip, 
 {
 	if (src->isViewSibling || dst->isViewSibling || srcSlice >= src->depth || dstSlice >= dst->depth)
 		return false;
-	if (!s_isStereo || !LatteView_IsSiblingValid(src, srcSlice, srcMip))
+	if (!s_isStereo || s_isMonoSection || !LatteView_IsSiblingValid(src, srcSlice, srcMip))
 	{
 		LatteView_SetSiblingValid(dst, dstSlice, dstMip, false);
 		return false;
@@ -230,6 +233,7 @@ bool LatteView_OnTextureCopy(LatteTexture* src, sint32 srcSlice, sint32 srcMip, 
 
 static void LatteView_resetScopeState()
 {
+	s_isMonoSection = false;
 	s_rightDataEpoch++;
 	s_rightWords.clear();
 	s_rightWordRanges.clear();
@@ -266,10 +270,27 @@ bool LatteView_IsStereo()
 	return s_isStereo;
 }
 
+bool LatteView_IsMonoSection()
+{
+	return s_isMonoSection;
+}
+
 void LatteView_itViewScope(const uint32be* data, uint32 nWords)
 {
 	cemu_assert_debug(nWords == 1);
-	bool isStereo = nWords >= 1 && (ViewScopeMode)(uint32)data[0] == ViewScopeMode::Stereo;
+	const ViewScopeMode mode = nWords >= 1 ? (ViewScopeMode)(uint32)data[0] : ViewScopeMode::Mono;
+	if (mode == ViewScopeMode::MonoSectionBegin || mode == ViewScopeMode::MonoSectionEnd)
+	{
+		bool isMonoSection = mode == ViewScopeMode::MonoSectionBegin;
+		if (!s_isStereo || isMonoSection == s_isMonoSection)
+			return;
+#ifdef ENABLE_VULKAN
+		VulkanRenderer::GetInstance()->view_setMonoSection();
+#endif
+		s_isMonoSection = isMonoSection;
+		return;
+	}
+	bool isStereo = mode == ViewScopeMode::Stereo;
 #ifdef ENABLE_VULKAN
 	VulkanRenderer* vkRenderer = (g_renderer && g_renderer->GetType() == RendererAPI::Vulkan) ? VulkanRenderer::GetInstance() : nullptr;
 	if (!vkRenderer)

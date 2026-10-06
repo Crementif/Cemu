@@ -1004,6 +1004,7 @@ public:
 
 	// two-view rendering
 	void view_setStereo(bool isStereo);
+	void view_setMonoSection();
 	void view_notifyDescriptorSetDeleted(VkDescriptorSetInfo* dsInfo);
 	void view_notifySiblingDeleted(LatteTexture* texture);
 
