@@ -598,8 +598,12 @@ private:
 	void occlusionQuery_destroy(LatteQueryObject* queryObj) override;
 	void occlusionQuery_flush() override;
 	void occlusionQuery_updateState() override;
-	void occlusionQuery_notifyEndCommandBuffer();
-	void occlusionQuery_notifyBeginCommandBuffer();
+	void occlusionQuery_resetReleasedIndices();
+	void occlusionQuery_prepareRenderPass(uint32 viewCount);
+	void occlusionQuery_notifyBeginRenderPass();
+	void occlusionQuery_notifyEndRenderPass();
+	uint32 occlusionQuery_acquireIndices(uint32 count);
+	void occlusionQuery_releaseIndices(uint32 firstIndex, uint32 count);
 
 private:
 	std::vector<const char*> m_layerNames;
@@ -722,11 +726,9 @@ private:
 		std::vector<class LatteQueryObjectVk*> list_cachedQueries;
 		std::vector<class LatteQueryObjectVk*> list_currentlyActiveQueries;
 		uint64 m_lastCommandBuffer{};
-		// query result buffer
-		VkBuffer bufferQueryResults;
-		VkDeviceMemory memoryQueryResults;
-		uint64* ptrQueryResults;
-		std::vector<uint16> list_availableQueryIndices;
+		std::vector<uint16> list_releasedQueryIndices; // free but not reset yet
+		std::set<uint16> list_resetQueryIndices;
+		uint32 passViewCount{1};
 	}m_occlusionQueries;
 
 	// barrier
@@ -1010,8 +1012,6 @@ private:
 	void view_preparePairDescriptorSets(PipelineInfo* pipeline_info, VkDescriptorSetInfo*& vertexDS, VkDescriptorSetInfo*& pixelDS, VkDescriptorSetInfo*& geometryDS);
 	bool uniformData_buildRightView(LatteDecompilerShader* shader, const float* leftUniformData, float* rightUniformData);
 	bool uniformData_updateViewArrays(LatteDecompilerShader* shader, float* uniformData);
-	void occlusionQuery_suspendFragments(bool suspend);
-	bool occlusionQuery_hasActiveFragment() const;
 
 	// debug
 	void debug_genericBarrier();

@@ -526,8 +526,6 @@ void VulkanRenderer::view_flushRightPass()
 	}
 	m_view.pendingSeeds.clear();
 
-	// right view draws shouldn't count towards the open query
-	occlusionQuery_suspendFragments(true);
 	if (m_view.rightFBO)
 		sync_RenderPassLoadTextures(m_view.rightFBO);
 	VkCommandBuffer commandBuffer = m_state.currentCommandBuffer;
@@ -599,7 +597,6 @@ void VulkanRenderer::view_flushRightPass()
 		vkCmdEndRenderPass(commandBuffer);
 	if (m_view.rightFBO)
 		sync_RenderPassStoreTextures(m_view.rightFBO);
-	occlusionQuery_suspendFragments(false);
 	m_view.commands.clear();
 	m_view.dynamicOffsets.clear();
 
@@ -689,9 +686,6 @@ bool VulkanRenderer::view_drawNeedsRight()
 bool VulkanRenderer::view_canDrawMultiview()
 {
 	if (LatteGPUState.contextRegister[mmVGT_STRMOUT_EN] != 0)
-		return false;
-	// multiview passes need an index per view
-	if (occlusionQuery_hasActiveFragment())
 		return false;
 	LatteDecompilerShader* shaders[3] = { LatteSHRC_GetActiveVertexShader(), LatteSHRC_GetActivePixelShader(), LatteSHRC_GetActiveGeometryShader() };
 	if (!shaders[0] || (shaders[2] && !m_featureControl.multiview.geometryShader))

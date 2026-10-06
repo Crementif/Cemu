@@ -147,6 +147,5 @@ bool isStereo{};
 	std::unordered_map<CachedFBOVk*, CachedFBOVk*> multiviewFBOs;
 	std::unordered_map<VkDescriptorSetInfo*, RightDescriptorSet> pairDescriptorSets;
 	std::unordered_set<VkDescriptorSetInfo*> knownPairDescriptorSets;
-	std::vector<LatteQueryObjectVk*> suspendedQueries;
 	VulkanViewUniformData uniformData[(size_t)LatteConst::ShaderType::TotalCount];
 };
