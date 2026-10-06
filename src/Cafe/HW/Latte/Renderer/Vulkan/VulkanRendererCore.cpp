@@ -1263,7 +1263,6 @@ void VulkanRenderer::draw_setRenderPass()
 	}
 
 	auto vkObjRenderPass = fboVk->GetRenderPassObj();
-	auto vkObjFramebuffer = fboVk->GetFramebufferObj();
 
 	bool feedbackLoopHandlesSelfDependency = UseAttachmentFeedbackLoop() && currentSelfDependencyInfo.HasSelfDependency() && !currentSelfDependencyInfo.HasVertexOrGeometrySelfDependency();
 	bool selfDependencyNeedsPassSplit = currentSelfDependencyInfo.HasSelfDependency() && !feedbackLoopHandlesSelfDependency;
@@ -1287,6 +1286,8 @@ void VulkanRenderer::draw_setRenderPass()
 		sync_inputTexturesChanged();
 
 	view_prepareRightPass(fboVk);
+	foveation_uploadPatterns();
+	auto vkObjFramebuffer = fboVk->GetFramebufferObj(foveation_getPattern(false));
 	sync_RenderPassLoadTextures(fboVk);
 	occlusionQuery_prepareRenderPass(m_view.isMultiviewFBO ? 2 : 1);
 

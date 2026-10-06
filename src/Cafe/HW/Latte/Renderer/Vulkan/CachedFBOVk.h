@@ -3,6 +3,15 @@
 #include "Cafe/HW/Latte/Core/LatteCachedFBO.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VKRBase.h"
 
+enum class FoveationPattern : uint8
+{
+	Full,
+	Left, // also used for multiview, where each view uses its own center
+	Right,
+	Both, // for passes whose result both views see
+	Count,
+};
+
 class CachedFBOVk : public LatteCachedFBO
 {
 public:
@@ -26,9 +35,14 @@ public:
 
 	static inline FSpinlock s_spinlockDependency;
 
-	VKRObjectFramebuffer* GetFramebufferObj() const
+	VKRObjectFramebuffer* GetFramebufferObj(FoveationPattern pattern = FoveationPattern::Full) const
 	{
-		return m_vkrObjFramebuffer;
+		return m_vkrObjFramebuffers[m_hasShadingRate ? (size_t)pattern : 0];
+	}
+
+	bool HasShadingRate() const
+	{
+		return m_hasShadingRate;
 	}
 
 	VKRObjectRenderPass* GetRenderPassObj() const
@@ -95,8 +109,9 @@ private:
 
 	VkDevice m_device;
 	uint32 m_viewMask{};
+	bool m_hasShadingRate{};
 	VKRObjectRenderPass* m_vkrObjRenderPass{};
-	VKRObjectFramebuffer* m_vkrObjFramebuffer{};
+	std::array<VKRObjectFramebuffer*, (size_t)FoveationPattern::Count> m_vkrObjFramebuffers{};
 
 	VkExtent2D m_extend;
 

@@ -475,6 +475,7 @@ private:
 			bool pipeline_robustness = false; // VK_EXT_pipeline_robustness
 			bool attachment_feedback_loop_layout = false; // VK_EXT_attachment_feedback_loop_layout
 			bool attachment_feedback_loop_dynamic_state = false; // VK_EXT_attachment_feedback_loop_dynamic_state (this is forced to false if VK_EXT_attachment_feedback_loop_layout is not supported)
+			bool fragment_shading_rate = false;
 		}deviceExtensions;
 
 		struct
@@ -488,6 +489,14 @@ private:
 			bool geometryShader{ false };
 			uint32 maxViewCount{ 0 };
 		}multiview;
+
+		struct
+		{
+			bool supported{ false };
+			bool layered{ false };
+			VkExtent2D texelSize{};
+			bool has4x4{ false };
+		}fragmentShadingRate;
 
 		struct
 		{
@@ -997,6 +1006,12 @@ public:
 	bool UseAttachmentFeedbackLoop() const { return m_featureControl.deviceExtensions.attachment_feedback_loop_dynamic_state; }
 	bool SupportsMultiview(bool withGeometryShader) const { return withGeometryShader ? m_featureControl.multiview.geometryShader : m_featureControl.multiview.supported; }
 	uint32 GetMaxMultiviewViewCount() const { return m_featureControl.multiview.maxViewCount; }
+	bool SupportsShadingRateAttachments() const { return m_featureControl.fragmentShadingRate.supported; }
+	VkExtent2D GetShadingRateTexelSize() const { return m_featureControl.fragmentShadingRate.texelSize; }
+
+	// foveated shading
+	bool foveation_appliesTo(const LatteCachedFBO& fbo, uint32 viewMask) const;
+	VKRObjectTextureView* foveation_getRateView(Vector2i size, uint32 viewMask, FoveationPattern pattern);
 
 	// host modules
 	void HostModule_DispatchEvent(const HostModule::HostEvent& event, LatteTexture* texture, uint32 sliceIndex);
@@ -1038,6 +1053,11 @@ private:
 	void view_preparePairDescriptorSets(PipelineInfo* pipeline_info, VkDescriptorSetInfo*& vertexDS, VkDescriptorSetInfo*& pixelDS, VkDescriptorSetInfo*& geometryDS);
 	bool uniformData_buildRightView(LatteDecompilerShader* shader, const float* leftUniformData, float* rightUniformData);
 	bool uniformData_updateViewArrays(LatteDecompilerShader* shader, float* uniformData);
+
+	VulkanFoveationState m_foveation;
+	FoveationPattern foveation_getPattern(bool isRightPass) const;
+	void foveation_uploadPatterns();
+	void foveation_destroy();
 
 	// debug
 	void debug_genericBarrier();

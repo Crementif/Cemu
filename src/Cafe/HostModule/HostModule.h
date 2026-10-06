@@ -114,6 +114,13 @@ namespace HostModule
 
 	void UseMultiviewStereo();
 
+	// sizes are relative to the target height, full rate inside innerRadius and quarter rate past outerRadius
+	void UseFoveatedShading(uint32_t guestWidth, uint32_t guestHeight, float innerRadius, float outerRadius);
+	// 0,0 is the top left, 1,1 the bottom right
+	void SetFoveationCentres(const float left[2], const float right[2]);
+	void SetFoveationRadii(float innerRadius, float outerRadius);
+	void SetFoveatedShadingActive(bool active);
+
 	void RegisterExternalModules();
 	void Startup();
 	void BeforeConfigLoad();

@@ -22,6 +22,11 @@ enum class ViewScopeMode : uint32
 static bool s_isStereo = false;
 static bool s_isMonoSection = false;
 static bool s_multiviewRequested = false;
+static std::optional<LatteViewFoveation> s_foveation;
+static bool s_foveationActive = true;
+static FSpinlock s_foveationFocusLock;
+static LatteViewFoveationFocus s_foveationFocus = { { { 0.5f, 0.5f }, { 0.5f, 0.5f } } };
+static uint32 s_foveationFocusEpoch = 0;
 static uint32 s_renderTargetCreationDepth = 0;
 
 struct RightWords
@@ -263,6 +268,55 @@ bool LatteView_UsesMultiview(bool withGeometryShader)
 #else
 	return false;
 #endif
+}
+
+void LatteView_RequestFoveation(const LatteViewFoveation& foveation)
+{
+	s_foveation = foveation;
+	LatteView_SetFoveationRadii(foveation.innerRadius, foveation.outerRadius);
+}
+
+const LatteViewFoveation* LatteView_GetFoveation()
+{
+	return s_foveation ? &*s_foveation : nullptr;
+}
+
+void LatteView_SetFoveationCentres(const float left[2], const float right[2])
+{
+	auto isClose = [](const float a[2], const float b[2]) { return std::abs(a[0] - b[0]) < 0.002f && std::abs(a[1] - b[1]) < 0.002f; };
+	std::unique_lock _l(s_foveationFocusLock);
+	if (isClose(s_foveationFocus.centres[0], left) && isClose(s_foveationFocus.centres[1], right))
+		return;
+	std::copy_n(left, 2, s_foveationFocus.centres[0]);
+	std::copy_n(right, 2, s_foveationFocus.centres[1]);
+	s_foveationFocusEpoch++;
+}
+
+void LatteView_SetFoveationRadii(float innerRadius, float outerRadius)
+{
+	std::unique_lock _l(s_foveationFocusLock);
+	if (s_foveationFocus.innerRadius == innerRadius && s_foveationFocus.outerRadius == outerRadius)
+		return;
+	s_foveationFocus.innerRadius = innerRadius;
+	s_foveationFocus.outerRadius = outerRadius;
+	s_foveationFocusEpoch++;
+}
+
+uint32 LatteView_GetFoveationFocus(LatteViewFoveationFocus& focus)
+{
+	std::unique_lock _l(s_foveationFocusLock);
+	focus = s_foveationFocus;
+	return s_foveationFocusEpoch;
+}
+
+void LatteView_SetFoveationActive(bool active)
+{
+	s_foveationActive = active;
+}
+
+bool LatteView_IsFoveationActive()
+{
+	return s_foveationActive && s_foveation;
 }
 
 bool LatteView_IsStereo()

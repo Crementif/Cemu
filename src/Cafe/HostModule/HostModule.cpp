@@ -96,6 +96,26 @@ namespace HostModule
 		LatteView_SetMultiviewRequested(true);
 	}
 
+	void UseFoveatedShading(uint32_t guestWidth, uint32_t guestHeight, float innerRadius, float outerRadius)
+	{
+		LatteView_RequestFoveation({ guestWidth, guestHeight, innerRadius, outerRadius });
+	}
+
+	void SetFoveationCentres(const float left[2], const float right[2])
+	{
+		LatteView_SetFoveationCentres(left, right);
+	}
+
+	void SetFoveationRadii(float innerRadius, float outerRadius)
+	{
+		LatteView_SetFoveationRadii(innerRadius, outerRadius);
+	}
+
+	void SetFoveatedShadingActive(bool active)
+	{
+		LatteView_SetFoveationActive(active);
+	}
+
 	const std::vector<std::pair<fs::path, PackOrder>>& GetGraphicPacks()
 	{
 		return s_graphicPacks;

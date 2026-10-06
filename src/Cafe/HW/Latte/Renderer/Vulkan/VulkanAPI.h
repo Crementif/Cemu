@@ -192,6 +192,10 @@ VKFUNC_DEVICE(vkCmdEndRenderingKHR);
 // ext_attachment_feedback_loop_dynamic_state
 VKFUNC_DEVICE(vkCmdSetAttachmentFeedbackLoopEnableEXT);
 
+// khr_fragment_shading_rate, needs khr_create_renderpass2
+VKFUNC_INSTANCE(vkGetPhysicalDeviceFragmentShadingRatesKHR);
+VKFUNC_DEVICE(vkCreateRenderPass2KHR);
+
 // khr_present_wait
 VKFUNC_DEVICE(vkWaitForPresentKHR);
 

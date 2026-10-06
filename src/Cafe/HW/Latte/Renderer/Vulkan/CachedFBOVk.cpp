@@ -36,6 +36,8 @@ void CachedFBOVk::CreateRenderPass()
 		attachmentInfo.depthAttachment.viewObj = nullptr;
 	}
 
+	m_hasShadingRate = VulkanRenderer::GetInstance()->foveation_appliesTo(*this, m_viewMask);
+	attachmentInfo.hasShadingRate = m_hasShadingRate;
 	m_vkrObjRenderPass = new VKRObjectRenderPass(attachmentInfo, Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS, m_viewMask);
 }
 
@@ -44,8 +46,12 @@ CachedFBOVk::~CachedFBOVk()
 	while (!m_usedByPipelines.empty())
 		delete m_usedByPipelines[0];
 	auto vkr = VulkanRenderer::GetInstance();
-	vkr->ReleaseDestructibleObject(m_vkrObjFramebuffer);
-	m_vkrObjFramebuffer = nullptr;
+	for (auto& framebuffer : m_vkrObjFramebuffers)
+	{
+		if (framebuffer)
+			vkr->ReleaseDestructibleObject(framebuffer);
+		framebuffer = nullptr;
+	}
 	vkr->ReleaseDestructibleObject(m_vkrObjRenderPass);
 	m_vkrObjRenderPass = nullptr;
 }
@@ -76,7 +82,7 @@ VKRObjectTextureView* CachedFBOVk::GetDepthStencilBufferImageView(bool& hasStenc
 
 void CachedFBOVk::CreateFramebuffer()
 {
-	std::array<VKRObjectTextureView*, 9> imageViews{};
+	std::array<VKRObjectTextureView*, 10> imageViews{};
 	int imageViewIndex = 0;
 	for (uint32 i = 0; i < 8; ++i)
 	{
@@ -93,7 +99,17 @@ void CachedFBOVk::CreateFramebuffer()
 
 	cemu_assert_debug(imageViewIndex < 9);
 
-	m_vkrObjFramebuffer = new VKRObjectFramebuffer(m_vkrObjRenderPass, std::span<VKRObjectTextureView*>(imageViews.data(), imageViewIndex), m_size);
+	if (m_hasShadingRate)
+	{
+		// the shading rate attachment comes last
+		for (size_t pattern = 0; pattern < m_vkrObjFramebuffers.size(); pattern++)
+		{
+			imageViews[imageViewIndex] = VulkanRenderer::GetInstance()->foveation_getRateView(m_size, m_viewMask, (FoveationPattern)pattern);
+			m_vkrObjFramebuffers[pattern] = new VKRObjectFramebuffer(m_vkrObjRenderPass, std::span<VKRObjectTextureView*>(imageViews.data(), imageViewIndex + 1), m_size);
+		}
+	}
+	else
+		m_vkrObjFramebuffers[0] = new VKRObjectFramebuffer(m_vkrObjRenderPass, std::span<VKRObjectTextureView*>(imageViews.data(), imageViewIndex), m_size);
 
 	m_extend = { (uint32)m_size.x, (uint32)m_size.y };
 }

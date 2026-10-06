@@ -19,6 +19,28 @@ void LatteView_SetMultiviewRequested(bool requested);
 bool LatteView_IsMultiviewRequested();
 bool LatteView_UsesMultiview(bool withGeometryShader);
 
+// has to be requested before any render target gets created
+struct LatteViewFoveation
+{
+	uint32 guestWidth;
+	uint32 guestHeight;
+	float innerRadius;
+	float outerRadius;
+};
+void LatteView_RequestFoveation(const LatteViewFoveation& foveation);
+const LatteViewFoveation* LatteView_GetFoveation();
+struct LatteViewFoveationFocus
+{
+	float centres[2][2];
+	float innerRadius;
+	float outerRadius;
+};
+void LatteView_SetFoveationCentres(const float left[2], const float right[2]);
+void LatteView_SetFoveationRadii(float innerRadius, float outerRadius);
+uint32 LatteView_GetFoveationFocus(LatteViewFoveationFocus& focus);
+void LatteView_SetFoveationActive(bool active);
+bool LatteView_IsFoveationActive();
+
 // right view siblings, the right view reads the texture itself until it writes its own
 LatteTexture* LatteView_GetOrCreateSibling(LatteTexture* texture);
 sint32 LatteView_GetSiblingSlice(LatteTexture* texture, sint32 sliceIndex);

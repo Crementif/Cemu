@@ -295,6 +295,14 @@ void VulkanRenderer::GetDeviceFeatures()
 	multiviewFeature.pNext = prevStruct;
 	prevStruct = &multiviewFeature;
 
+	VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragmentShadingRateFeature{};
+	if (m_featureControl.deviceExtensions.fragment_shading_rate)
+	{
+		fragmentShadingRateFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+		fragmentShadingRateFeature.pNext = prevStruct;
+		prevStruct = &fragmentShadingRateFeature;
+	}
+
 	VkPhysicalDeviceFeatures2 physicalDeviceFeatures2{};
 	physicalDeviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	physicalDeviceFeatures2.pNext = prevStruct;
@@ -320,6 +328,14 @@ void VulkanRenderer::GetDeviceFeatures()
 	multiviewProperties.pNext = prevStruct;
 	prevStruct = &multiviewProperties;
 
+	VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragmentShadingRateProperties{};
+	if (m_featureControl.deviceExtensions.fragment_shading_rate)
+	{
+		fragmentShadingRateProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+		fragmentShadingRateProperties.pNext = prevStruct;
+		prevStruct = &fragmentShadingRateProperties;
+	}
+
 	VkPhysicalDeviceProperties2 prop2{};
 	prop2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	prop2.pNext = prevStruct;
@@ -334,6 +350,21 @@ void VulkanRenderer::GetDeviceFeatures()
 	m_featureControl.multiview.maxViewCount = multiviewProperties.maxMultiviewViewCount;
 	m_featureControl.multiview.supported = m_featureControl.multiview.supported && multiviewProperties.maxMultiviewViewCount >= 2;
 	m_featureControl.multiview.geometryShader = m_featureControl.multiview.geometryShader && m_featureControl.multiview.supported;
+	if (m_featureControl.deviceExtensions.fragment_shading_rate && fragmentShadingRateFeature.attachmentFragmentShadingRate && fragmentShadingRateFeature.pipelineFragmentShadingRate && vkGetPhysicalDeviceFragmentShadingRatesKHR)
+	{
+		auto& rate = m_featureControl.fragmentShadingRate;
+		rate.supported = true;
+		rate.layered = fragmentShadingRateProperties.layeredShadingRateAttachments;
+		const VkExtent2D& minTexel = fragmentShadingRateProperties.minFragmentShadingRateAttachmentTexelSize;
+		const VkExtent2D& maxTexel = fragmentShadingRateProperties.maxFragmentShadingRateAttachmentTexelSize;
+		rate.texelSize = { std::clamp<uint32>(16, minTexel.width, maxTexel.width), std::clamp<uint32>(16, minTexel.height, maxTexel.height) };
+		uint32 rateCount = 0;
+		vkGetPhysicalDeviceFragmentShadingRatesKHR(m_physicalDevice, &rateCount, nullptr);
+		std::vector<VkPhysicalDeviceFragmentShadingRateKHR> rates(rateCount, { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_KHR });
+		vkGetPhysicalDeviceFragmentShadingRatesKHR(m_physicalDevice, &rateCount, rates.data());
+		rate.has4x4 = std::any_of(rates.begin(), rates.end(), [](const VkPhysicalDeviceFragmentShadingRateKHR& r) { return r.fragmentSize.width == 4 && r.fragmentSize.height == 4 && (r.sampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0; });
+		cemuLog_log(LogType::Force, "Vulkan: shading rate attachments with {}x{} texels, layered: {}, 4x4: {}", rate.texelSize.width, rate.texelSize.height, rate.layered, rate.has4x4);
+	}
 	if(!m_featureControl.shaderFloatControls.shaderRoundingModeRTEFloat32)
 		cemuLog_log(LogType::Force, "Shader round mode control not available on this device or driver. Some rendering issues might occur.");
 
@@ -787,6 +818,17 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 		deviceFeatures.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
 	}
 
+	// enable VK_KHR_fragment_shading_rate for foveated shading
+	VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragmentShadingRateFeature{};
+	if (m_featureControl.fragmentShadingRate.supported)
+	{
+		fragmentShadingRateFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+		fragmentShadingRateFeature.pNext = deviceExtensionFeatures;
+		deviceExtensionFeatures = &fragmentShadingRateFeature;
+		fragmentShadingRateFeature.pipelineFragmentShadingRate = VK_TRUE;
+		fragmentShadingRateFeature.attachmentFragmentShadingRate = VK_TRUE;
+	}
+
 	std::vector<const char*> used_extensions;
 	VkDeviceCreateInfo createInfo = CreateDeviceCreateInfo(queueCreateInfos, deviceFeatures, deviceExtensionFeatures, used_extensions);
 
@@ -928,6 +970,7 @@ VulkanRenderer::~VulkanRenderer()
 
 	// delete null objects
 	DeleteNullObjects();
+	foveation_destroy();
 
 	// delete buffers
 	memoryManager->DeleteBuffer(m_uniformVarBuffer, m_uniformVarBufferMemory);
@@ -1369,6 +1412,11 @@ VkDeviceCreateInfo VulkanRenderer::CreateDeviceCreateInfo(const std::vector<VkDe
 		used_extensions.emplace_back(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME);
 		used_extensions.emplace_back(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_DYNAMIC_STATE_EXTENSION_NAME);
 	}
+	if (m_featureControl.fragmentShadingRate.supported)
+	{
+		used_extensions.emplace_back(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
+		used_extensions.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+	}
 
 	VkDeviceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -1468,6 +1516,7 @@ bool VulkanRenderer::CheckDeviceExtensionSupport(const VkPhysicalDevice device, 
 	info.deviceExtensions.pipeline_robustness = isExtensionAvailable(VK_EXT_PIPELINE_ROBUSTNESS_EXTENSION_NAME);
 	info.deviceExtensions.attachment_feedback_loop_layout = isExtensionAvailable(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME);
 	info.deviceExtensions.attachment_feedback_loop_dynamic_state = isExtensionAvailable(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_DYNAMIC_STATE_EXTENSION_NAME);
+	info.deviceExtensions.fragment_shading_rate = isExtensionAvailable(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) && isExtensionAvailable(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
 	// dynamic rendering doesn't provide any benefits for us right now. Driver implementations are very unoptimized as of Feb 2022
 	info.deviceExtensions.present_wait = isExtensionAvailable(VK_KHR_PRESENT_WAIT_EXTENSION_NAME) && isExtensionAvailable(VK_KHR_PRESENT_ID_EXTENSION_NAME);
 
@@ -4311,9 +4360,99 @@ void VKRObjectSampler::DestroyCache()
 	s_samplerCache.clear();
 }
 
+static VkResult CreateRenderPassWithShadingRate(VkDevice device, const VkRenderPassCreateInfo& info, uint32 viewMask, VkExtent2D texelSize, VkRenderPass& renderPass)
+{
+	std::vector<VkAttachmentDescription2> attachments;
+	for (uint32 i = 0; i < info.attachmentCount; i++)
+	{
+		const VkAttachmentDescription& src = info.pAttachments[i];
+		VkAttachmentDescription2& dst = attachments.emplace_back();
+		dst.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
+		dst.flags = src.flags;
+		dst.format = src.format;
+		dst.samples = src.samples;
+		dst.loadOp = src.loadOp;
+		dst.storeOp = src.storeOp;
+		dst.stencilLoadOp = src.stencilLoadOp;
+		dst.stencilStoreOp = src.stencilStoreOp;
+		dst.initialLayout = src.initialLayout;
+		dst.finalLayout = src.finalLayout;
+	}
+	VkAttachmentDescription2& rate = attachments.emplace_back();
+	rate.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
+	rate.format = VK_FORMAT_R8_UINT;
+	rate.samples = VK_SAMPLE_COUNT_1_BIT;
+	rate.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	rate.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	rate.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	rate.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	rate.initialLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+	rate.finalLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+
+	auto toReference2 = [](const VkAttachmentReference& ref) {
+		VkAttachmentReference2 ref2{};
+		ref2.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
+		ref2.attachment = ref.attachment;
+		ref2.layout = ref.layout;
+		return ref2;
+	};
+	const VkSubpassDescription& subpass = info.pSubpasses[0];
+	std::array<VkAttachmentReference2, Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS> colorReferences{};
+	cemu_assert(subpass.colorAttachmentCount <= colorReferences.size());
+	for (uint32 i = 0; i < subpass.colorAttachmentCount; i++)
+		colorReferences[i] = toReference2(subpass.pColorAttachments[i]);
+	VkAttachmentReference2 depthReference = toReference2(*subpass.pDepthStencilAttachment);
+	VkAttachmentReference2 rateReference = toReference2({ info.attachmentCount, VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR });
+
+	VkFragmentShadingRateAttachmentInfoKHR rateInfo{};
+	rateInfo.sType = VK_STRUCTURE_TYPE_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR;
+	rateInfo.pFragmentShadingRateAttachment = &rateReference;
+	rateInfo.shadingRateAttachmentTexelSize = texelSize;
+
+	VkSubpassDescription2 subpass2{};
+	subpass2.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2;
+	subpass2.pNext = &rateInfo;
+	subpass2.pipelineBindPoint = subpass.pipelineBindPoint;
+	subpass2.viewMask = viewMask;
+	subpass2.colorAttachmentCount = subpass.colorAttachmentCount;
+	subpass2.pColorAttachments = colorReferences.data();
+	subpass2.pDepthStencilAttachment = &depthReference;
+
+	std::vector<VkSubpassDependency2> dependencies;
+	for (uint32 i = 0; i < info.dependencyCount; i++)
+	{
+		const VkSubpassDependency& src = info.pDependencies[i];
+		VkSubpassDependency2& dst = dependencies.emplace_back();
+		dst.sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+		dst.srcSubpass = src.srcSubpass;
+		dst.dstSubpass = src.dstSubpass;
+		dst.srcStageMask = src.srcStageMask;
+		dst.dstStageMask = src.dstStageMask;
+		dst.srcAccessMask = src.srcAccessMask;
+		dst.dstAccessMask = src.dstAccessMask;
+		dst.dependencyFlags = src.dependencyFlags;
+	}
+
+	VkRenderPassCreateInfo2 info2{};
+	info2.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2;
+	info2.attachmentCount = (uint32)attachments.size();
+	info2.pAttachments = attachments.data();
+	info2.subpassCount = 1;
+	info2.pSubpasses = &subpass2;
+	info2.dependencyCount = (uint32)dependencies.size();
+	info2.pDependencies = dependencies.data();
+	if (viewMask != 0)
+	{
+		info2.correlatedViewMaskCount = 1;
+		info2.pCorrelatedViewMasks = &viewMask;
+	}
+	return vkCreateRenderPass2KHR(device, &info2, nullptr, &renderPass);
+}
+
 VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint32 colorAttachmentCount, uint32 viewMask)
 {
 	m_viewMask = viewMask;
+	m_hasShadingRate = attachmentInfo.hasShadingRate;
 	VulkanRenderer* vkRenderer = VulkanRenderer::GetInstance();
 	bool useAttachmentFeedbackLoop = vkRenderer->UseAttachmentFeedbackLoop();
 	VkImageLayout attachmentLayout = useAttachmentFeedbackLoop ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : VK_IMAGE_LAYOUT_GENERAL;
@@ -4334,6 +4473,8 @@ VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint3
 		stateHash = std::rotl<uint64>(stateHash, 7);
 	}
 	stateHash += viewMask;
+	if (attachmentInfo.hasShadingRate)
+		stateHash = std::rotl<uint64>(stateHash + 0x5352, 7);
 	m_hashForPipeline = stateHash;
 
 	// setup Vulkan renderpass
@@ -4454,7 +4595,12 @@ VKRObjectRenderPass::VKRObjectRenderPass(AttachmentInfo_t& attachmentInfo, sint3
 		renderPassInfo.pNext = &multiviewInfo;
 	}
 
-	if (vkCreateRenderPass(vkRenderer->GetLogicalDevice(), &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS)
+	VkResult result;
+	if (attachmentInfo.hasShadingRate)
+		result = CreateRenderPassWithShadingRate(vkRenderer->GetLogicalDevice(), renderPassInfo, m_viewMask, vkRenderer->GetShadingRateTexelSize(), m_renderPass);
+	else
+		result = vkCreateRenderPass(vkRenderer->GetLogicalDevice(), &renderPassInfo, nullptr, &m_renderPass);
+	if (result != VK_SUCCESS)
 	{
 		cemuLog_log(LogType::Force, "Vulkan-Error: Failed to create render pass");
 		throw std::runtime_error("failed to create render pass!");

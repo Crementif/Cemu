@@ -175,6 +175,7 @@ public:
 	{
 		AttachmentEntryColor_t colorAttachment[Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS];
 		AttachmentEntryDepth_t depthAttachment;
+		bool hasShadingRate{};
 	};
 
 	VkFormat GetColorFormat(size_t index)
@@ -196,6 +197,7 @@ public:
 	VkFormat m_colorAttachmentFormat[Latte::GPU_LIMITS::NUM_COLOR_ATTACHMENTS];
 	VkFormat m_depthAttachmentFormat;
 	uint32 m_viewMask{};
+	bool m_hasShadingRate{};
 	uint64 m_hashForPipeline; // helper var. Holds hash of all the renderpass creation parameters (mainly the formats) that affect the pipeline state
 };
 

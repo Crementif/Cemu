@@ -549,6 +549,7 @@ if (ENABLE_VULKAN)
     HW/Latte/Renderer/Vulkan/VulkanRenderer.cpp
     HW/Latte/Renderer/Vulkan/VulkanRenderer.h
     HW/Latte/Renderer/Vulkan/VulkanRendererHostModule.cpp
+    HW/Latte/Renderer/Vulkan/VulkanRendererFoveation.cpp
     HW/Latte/Renderer/Vulkan/VulkanRendererView.cpp
     HW/Latte/Renderer/Vulkan/VulkanRendererView.h
     HW/Latte/Renderer/Vulkan/VulkanSurfaceCopy.cpp

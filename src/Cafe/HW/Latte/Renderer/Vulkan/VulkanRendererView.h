@@ -149,3 +149,22 @@ bool isStereo{};
 	std::unordered_set<VkDescriptorSetInfo*> knownPairDescriptorSets;
 	VulkanViewUniformData uniformData[(size_t)LatteConst::ShaderType::TotalCount];
 };
+
+// foveated shading
+struct VulkanFoveationRateImage
+{
+	VkExtent2D extent; // in shading rate texels
+	uint32 viewMask;
+	uint32 layerCount;
+	VKRObjectTexture* image;
+	std::array<VKRObjectTextureView*, (size_t)FoveationPattern::Count> views;
+	uint32 focusEpoch;
+	bool isInitialized;
+};
+
+struct VulkanFoveationState
+{
+	std::vector<std::unique_ptr<VulkanFoveationRateImage>> rateImages;
+	uint32 uploadedEpoch{};
+	bool hasNewImage{};
+};

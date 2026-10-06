@@ -985,6 +985,17 @@ bool PipelineCompiler::Compile(bool forceCompile, bool isRenderThread, bool show
 		pipelineRobustnessCreateInfo.images = VK_PIPELINE_ROBUSTNESS_IMAGE_BEHAVIOR_DEVICE_DEFAULT_EXT;
 	}
 
+	VkPipelineFragmentShadingRateStateCreateInfoKHR shadingRateCreateInfo{};
+	if (m_renderPassObj->m_hasShadingRate)
+	{
+		shadingRateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR;
+		shadingRateCreateInfo.pNext = prevStruct;
+		prevStruct = &shadingRateCreateInfo;
+		shadingRateCreateInfo.fragmentSize = { 1, 1 };
+		shadingRateCreateInfo.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+		shadingRateCreateInfo.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR;
+	}
+
 	pipelineInfo.pNext = prevStruct;
 
 	VkPipeline pipeline = VK_NULL_HANDLE;
@@ -1042,7 +1053,7 @@ void PipelineCompiler::TrackAsCached(uint64 baseHash, uint64 pipelineStateHash)
 	auto& pipelineCache = VulkanPipelineStableCache::GetInstance();
 	if (pipelineCache.HasPipelineCached(baseHash, pipelineStateHash))
 		return;
-	pipelineCache.AddCurrentStateToCache(baseHash, pipelineStateHash, m_renderPassObj ? m_renderPassObj->m_viewMask : 0);
+	pipelineCache.AddCurrentStateToCache(baseHash, pipelineStateHash, m_renderPassObj ? m_renderPassObj->m_viewMask : 0, m_renderPassObj && m_renderPassObj->m_hasShadingRate);
 }
 
 // calculate whether the pipeline requires robust buffer access
