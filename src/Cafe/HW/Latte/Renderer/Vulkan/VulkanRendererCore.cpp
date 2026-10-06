@@ -1296,6 +1296,7 @@ void VulkanRenderer::draw_setRenderPass()
 
 	view_prepareRightPass(fboVk);
 	sync_RenderPassLoadTextures(fboVk);
+	occlusionQuery_prepareRenderPass(m_view.isMultiviewFBO ? 2 : 1);
 
 	if (m_featureControl.deviceExtensions.dynamic_rendering)
 	{
@@ -1318,6 +1319,7 @@ void VulkanRenderer::draw_setRenderPass()
 	}
 
 	m_state.activeRenderpassFBO = fboVk;
+	occlusionQuery_notifyBeginRenderPass();
 	if (UseAttachmentFeedbackLoop() && currentSelfDependencyInfo.GetAspectMask() != m_state.feedbackLoopImageAspect)
 	{
 		m_state.feedbackLoopImageAspect = currentSelfDependencyInfo.GetAspectMask();
@@ -1334,6 +1336,7 @@ void VulkanRenderer::draw_endRenderPass()
 {
 	if (!m_state.activeRenderpassFBO)
 		return;
+	occlusionQuery_notifyEndRenderPass();
 	if (m_featureControl.deviceExtensions.dynamic_rendering)
 		vkCmdEndRenderingKHR(m_state.currentCommandBuffer);
 	else
