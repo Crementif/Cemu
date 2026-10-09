@@ -651,7 +651,7 @@ void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint3
 	renderPassInfo.renderPass = copySurfacePipelineInfo->vkObjRenderPass->m_renderPass;
 	renderPassInfo.framebuffer = vkObjFramebuffer->m_frameBuffer;
 	renderPassInfo.renderArea.offset = { 0, 0 };
-	renderPassInfo.renderArea.extent = { (uint32_t)effectiveCopyWidth, (uint32_t)effectiveCopyHeight };
+	renderPassInfo.renderArea.extent = { (uint32_t)std::min(effectiveCopyWidth, dstEffectiveWidth), (uint32_t)std::min(effectiveCopyHeight, dstEffectiveHeight) };
 	renderPassInfo.clearValueCount = 0;
 
 	VkViewport viewport{};
@@ -665,8 +665,7 @@ void VulkanRenderer::surfaceCopy_viaDrawcall(LatteTextureVk* srcTextureVk, sint3
 	VkRect2D scissor;
 	scissor.offset.x = 0;
 	scissor.offset.y = 0;
-	scissor.extent.width = effectiveCopyWidth;
-	scissor.extent.height = effectiveCopyHeight;
+	scissor.extent = renderPassInfo.renderArea.extent;
 
 	vkCmdSetViewport(m_state.currentCommandBuffer, 0, 1, &viewport);
 	vkCmdSetScissor(m_state.currentCommandBuffer, 0, 1, &scissor);
