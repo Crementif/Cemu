@@ -3724,6 +3724,24 @@ void VulkanRenderer::texture_copyImageSubData(LatteTexture* src, sint32 srcMip, 
 		}
 	}
 
+	// keep the region inside both images, a compressed block counts as one texel of an uncompressed image
+	sint32 srcMipWidth, srcMipHeight, dstMipWidth, dstMipHeight;
+	src->GetEffectiveSize(srcMipWidth, srcMipHeight, srcMip);
+	dst->GetEffectiveSize(dstMipWidth, dstMipHeight, dstMip);
+	const sint32 srcBlock = srcIsCompressed ? 4 : 1;
+	const sint32 dstBlock = dstIsCompressed ? 4 : 1;
+	const sint32 dstRoomWidth = (dstMipWidth - effectiveDstX + dstBlock - 1) / dstBlock * srcBlock;
+	const sint32 dstRoomHeight = (dstMipHeight - effectiveDstY + dstBlock - 1) / dstBlock * srcBlock;
+	const sint32 maxCopyWidth = std::min(srcMipWidth - effectiveSrcX, dstRoomWidth);
+	const sint32 maxCopyHeight = std::min(srcMipHeight - effectiveSrcY, dstRoomHeight);
+	if (maxCopyWidth <= 0 || maxCopyHeight <= 0 || effectiveSrcX < 0 || effectiveSrcY < 0 || effectiveDstX < 0 || effectiveDstY < 0)
+	{
+		cemuLog_logDebug(LogType::Force, "vkCmdCopyImage - skipped copy that lies outside of the source or destination image");
+		return;
+	}
+	region.extent.width = std::min<sint32>(region.extent.width, maxCopyWidth);
+	region.extent.height = std::min<sint32>(region.extent.height, maxCopyHeight);
+
 	// make sure all write operations to the src image have finished
 	barrier_image<SYNC_OP::IMAGE_WRITE | SYNC_OP::ANY_TRANSFER, SYNC_OP::ANY_TRANSFER>(srcVk, region.srcSubresource, VK_IMAGE_LAYOUT_GENERAL);
 	// make sure all read and write operations to the dst image have finished
