@@ -2280,7 +2280,7 @@ void VulkanRenderer::SubmitCommandBuffer(VkSemaphore signalSemaphore, VkSemaphor
 	occlusionQuery_notifyBeginCommandBuffer();
 
 	m_recordedDrawcalls = 0;
-	m_submitThreshold = 300;
+	m_submitThreshold = 1000;
 	m_submitOnIdle = false;
 }
 
