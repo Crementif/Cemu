@@ -1227,9 +1227,17 @@ bool LatteTexture_GX2FormatHasStencil(bool isDepth, Latte::E_GX2SURFFMT format)
 		   format == Latte::E_GX2SURFFMT::D32_S8_FLOAT;
 }
 
+static uint32 s_textureGeneration = 0;
+
+uint32 LatteTexture_GetGeneration()
+{
+	return s_textureGeneration;
+}
+
 LatteTexture::LatteTexture(Latte::E_DIM dim, MPTR physAddress, MPTR physMipAddress, Latte::E_GX2SURFFMT format, uint32 width, uint32 height, uint32 depth, uint32 pitch, uint32 mipLevels, uint32 swizzle,
 	Latte::E_HWTILEMODE tileMode, bool isDepth)
 {
+	s_textureGeneration++;
 	_AddTextureToGlobalList(this);
 	if (depth < 1)
 		depth = 1;
@@ -1368,6 +1376,7 @@ LatteTexture::LatteTexture(Latte::E_DIM dim, MPTR physAddress, MPTR physMipAddre
 
 LatteTexture::~LatteTexture()
 {
+	s_textureGeneration++;
 	_RemoveTextureFromGlobalList(this);
 	cemu_assert_debug(baseView == nullptr);
 	cemu_assert_debug(views.empty());

@@ -231,6 +231,72 @@ LatteTextureView* LatteMRT_CreateDepthBuffer(MPTR depthBufferPhysMem, uint32 wid
 
 sint32 _depthBufferSizeWarningCount = 0;
 
+struct UnpaddedSizeKey
+{
+	MPTR physAddr;
+	uint32 pitch;
+	uint32 paddedHeight;
+	Latte::E_GX2SURFFMT format;
+	Latte::E_HWTILEMODE tileMode;
+	uint32 firstSlice;
+
+	bool operator==(const UnpaddedSizeKey& other) const = default;
+};
+
+struct UnpaddedSizeKeyHash
+{
+	size_t operator()(const UnpaddedSizeKey& key) const
+	{
+		uint64 h = (uint64)key.physAddr * 0x9E3779B97F4A7C15ull;
+		h ^= ((uint64)key.pitch << 17) ^ ((uint64)key.paddedHeight << 34) ^ ((uint64)key.format << 49) ^ ((uint64)key.tileMode << 4) ^ (uint64)key.firstSlice;
+		return (size_t)(h ^ (h >> 31));
+	}
+};
+
+struct UnpaddedSize
+{
+	uint32 generation;
+	uint32 width;
+	uint32 height;
+};
+
+// use the size of the game's own texture if it only differs by padding
+static void LatteMRT_ResolveUnpaddedSize(MPTR physAddr, uint32 pitch, uint32 paddedHeight, Latte::E_GX2SURFFMT format, Latte::E_HWTILEMODE tileMode, uint32 firstSlice, bool isDepth, uint32& width, uint32& height)
+{
+	static std::unordered_map<UnpaddedSizeKey, UnpaddedSize, UnpaddedSizeKeyHash> s_resolvedSizes;
+	static std::vector<LatteTexture*> s_candidates;
+	const UnpaddedSizeKey key{ physAddr, pitch, paddedHeight, format, tileMode, firstSlice };
+	const uint32 generation = LatteTexture_GetGeneration();
+	UnpaddedSize& resolved = s_resolvedSizes[key];
+	if (resolved.generation != generation || resolved.width == 0)
+	{
+		resolved = { generation, pitch, paddedHeight };
+		s_candidates.clear();
+		LatteTC_LookupTexturesByPhysAddr(physAddr, s_candidates);
+		uint32 bestArea = 0;
+		for (LatteTexture* texture : s_candidates)
+		{
+			if (texture->format != format || texture->tileMode != tileMode || texture->isDepth != isDepth || texture->pitch != pitch)
+				continue;
+			if (texture->Is3DTexture() || firstSlice >= (uint32)texture->depth)
+				continue;
+			if ((uint32)texture->width > pitch || (uint32)texture->height > paddedHeight || pitch - texture->width >= 64 || paddedHeight - texture->height >= 32)
+				continue;
+			if ((uint32)texture->width == pitch && (uint32)texture->height == paddedHeight)
+				continue;
+			const uint32 area = (uint32)texture->width * (uint32)texture->height;
+			if (area > bestArea)
+			{
+				bestArea = area;
+				resolved.width = texture->width;
+				resolved.height = texture->height;
+			}
+		}
+	}
+	width = resolved.width;
+	height = resolved.height;
+}
+
 LatteTextureView* LatteMRT::GetColorAttachmentTexture(uint32 index, bool createNew, bool checkForTextureChanges)
 {
 	uint32* colorBufferRegBase = LatteGPUState.contextRegister+(mmCB_COLOR0_BASE + index);
@@ -266,17 +332,9 @@ LatteTextureView* LatteMRT::GetColorAttachmentTexture(uint32 index, bool createN
 	uint32 colorBufferHeight = pitchHeight / colorBufferPitch;
 	uint32 colorBufferWidth = colorBufferPitch;
 
-	// colorbuffer width/height has to be padded to 8/32 alignment but the actual resolution might be smaller
-	// use the scissor box as a clue to figure out the original resolution if possible
-	if(LatteGPUState.allowFramebufferSizeOptimization)
-	{
-		uint32 scissorBoxWidth = LatteGPUState.contextNew.PA_SC_GENERIC_SCISSOR_BR.get_BR_X();
-		uint32 scissorBoxHeight = LatteGPUState.contextNew.PA_SC_GENERIC_SCISSOR_BR.get_BR_Y();
-		if (((scissorBoxWidth + 7) & ~7) == colorBufferWidth)
-			colorBufferWidth = scissorBoxWidth;
-		if (((colorBufferHeight + 31) & ~31) == colorBufferHeight)
-			colorBufferHeight = scissorBoxHeight;
-	}
+	// colorbuffer width/height are padded, but the actual resolution might be smaller
+	if (LatteGPUState.allowFramebufferSizeOptimization)
+		LatteMRT_ResolveUnpaddedSize(colorBufferPhysMem, colorBufferPitch, colorBufferHeight, colorBufferFormat, colorBufferTileMode, viewFirstSlice, false, colorBufferWidth, colorBufferHeight);
 
 	// log resolution changes if the above heuristic takes effect
 	// this is useful to find resolutions which need to be updated in gfx pack texture rules
@@ -547,6 +605,11 @@ bool LatteMRT::UpdateCurrentFBO()
 
 		if (blockDepthBuffer == false)
 		{
+			if (LatteGPUState.allowFramebufferSizeOptimization && depthBufferPhysMem != MPTR_NULL)
+			{
+				const MPTR unswizzledPhysMem = Latte::TM_IsMacroTiled(depthBufferTileMode) ? (depthBufferPhysMem & ~(7 << 8)) : depthBufferPhysMem;
+				LatteMRT_ResolveUnpaddedSize(unswizzledPhysMem, depthBufferPitch, depthBufferHeight, depthBufferFormat, depthBufferTileMode, LatteGPUState.contextRegister[mmDB_DEPTH_VIEW] & 0x7FF, true, depthBufferWidth, depthBufferHeight);
+			}
 			if (rtRealSize->width == 0)
 			{
 				rtRealSize->width = depthBufferWidth;
