@@ -42,7 +42,6 @@ private:
 	{
 		wxCheckBox* fullscreenCheckbox;
 		wxCheckBox* separateCheckbox;
-		wxCheckBox* updateCheckbox;
 	}m_page2;
 };
 

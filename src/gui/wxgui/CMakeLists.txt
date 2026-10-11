@@ -2,8 +2,6 @@ add_library(CemuWxGui STATIC
   canvas/IRenderCanvas.h
   CemuApp.cpp
   CemuApp.h
-  CemuUpdateWindow.cpp
-  CemuUpdateWindow.h
   ChecksumTool.cpp
   ChecksumTool.h
   components/TextList.cpp
@@ -44,8 +42,6 @@ add_library(CemuWxGui STATIC
   dialogs/SaveImport/SaveTransfer.h
   AudioDebuggerWindow.cpp
   AudioDebuggerWindow.h
-  DownloadGraphicPacksWindow.cpp
-  DownloadGraphicPacksWindow.h
   DownloadCustomGraphicPackWindow.cpp
   DownloadCustomGraphicPackWindow.h
   GameProfileWindow.cpp

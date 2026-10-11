@@ -1,6 +1,10 @@
 #ifndef EMULATOR_NAME
 
 #define EMULATOR_NAME					"Cemu"
+#define WINDOW_TITLE_NAME				"BetterVR (fork of Cemu)"
+// runs next to a normal Cemu install and shares its user data
+#define FORK_FOLDER_NAME				"BetterVR"
+#define FORK_SETTINGS_FILE				"settings_bettervr.xml"
 
 #define EMULATOR_VERSION_SUFFIX			""
 

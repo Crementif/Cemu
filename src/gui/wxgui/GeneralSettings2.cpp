@@ -256,22 +256,6 @@ wxPanel* GeneralSettings2::AddGeneralPage(wxNotebook* notebook)
 			third_row->Add(m_play_boot_sound, 0, botflag, 5);
 			CountRowElement();
 
-			m_auto_update = new wxCheckBox(box, wxID_ANY, _("Automatically check for updates"));
-			m_auto_update->SetToolTip(_("Automatically checks for new cemu versions on startup"));
-			third_row->Add(m_auto_update, 0, botflag, 5);
-			CountRowElement();
-
-			m_receive_untested_releases = new wxCheckBox(box, wxID_ANY, _("Receive untested updates"));
-			m_receive_untested_releases->SetToolTip(_("When checking for updates, include brand new and untested releases. These may contain bugs!"));
-			third_row->Add(m_receive_untested_releases, 0, botflag, 5);
-#if BOOST_OS_LINUX
-			if (!std::getenv("APPIMAGE")) {
-				m_auto_update->Disable();
-			}
-#elif BOOST_OS_BSD // BSD users must update from source so disable auto updates
-			m_auto_update->Disable();
-#endif
-
 			box_sizer->Add(third_row, 0, wxEXPAND, 5);
 		}
 
@@ -1123,9 +1107,7 @@ void GeneralSettings2::StoreConfig()
 
 	wxGuiConfig.use_discord_presence = m_discord_presence->IsChecked();
 	wxGuiConfig.fullscreen_menubar = m_fullscreen_menubar->IsChecked();
-	wxGuiConfig.check_update = m_auto_update->IsChecked();
 	wxGuiConfig.save_screenshot = m_save_screenshot->IsChecked();
-	wxGuiConfig.receive_untested_updates = m_receive_untested_releases->IsChecked();
 #if BOOST_OS_LINUX && defined(ENABLE_FERAL_GAMEMODE)
     wxGuiConfig.feral_gamemode = m_feral_gamemode->IsChecked();
 #endif
@@ -1887,8 +1869,6 @@ void GeneralSettings2::ApplyConfig()
 	m_discord_presence->SetValue(wxGUIconfig.use_discord_presence);
 	m_fullscreen_menubar->SetValue(wxGUIconfig.fullscreen_menubar);
 
-	m_auto_update->SetValue(wxGUIconfig.check_update);
-	m_receive_untested_releases->SetValue(wxGUIconfig.receive_untested_updates);
 	m_save_screenshot->SetValue(wxGUIconfig.save_screenshot);
 
 	m_disable_screensaver->SetValue(config.disable_screensaver);

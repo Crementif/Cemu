@@ -36,7 +36,7 @@ namespace HostModule
 
 	void BeforeConfigLoad()
 	{
-		const fs::path settingsFile = ActiveSettings::GetConfigPath("settings.xml");
+		const fs::path settingsFile = ActiveSettings::GetConfigPath(FORK_SETTINGS_FILE);
 		for (auto& module : s_modules)
 			module->OnBeforeConfigLoad(settingsFile);
 	}
