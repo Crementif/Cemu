@@ -10,7 +10,6 @@
 #include "config/ActiveSettings.h"
 #include "wxCemuConfig.h"
 #include "wxgui/CemuApp.h"
-#include "wxgui/DownloadGraphicPacksWindow.h"
 #include "wxgui/GraphicPacksWindow2.h"
 #include "wxgui/input/InputSettings2.h"
 #include "config/CemuConfig.h"
@@ -115,7 +114,7 @@ wxPanel* GettingStartedDialog::CreatePage1()
 
 		sizer->Add(new wxStaticText(sizer->GetStaticBox(), wxID_ANY, _("Graphic packs improve games by offering the ability to change resolution, increase FPS, tweak visuals or add gameplay modifications.\nGet started by opening the graphic packs configuration window.\n")), 0, wxALL, 5);
 
-		auto* download_gp = new wxButton(sizer->GetStaticBox(), wxID_ANY, _("Download and configure graphic packs"));
+		auto* download_gp = new wxButton(sizer->GetStaticBox(), wxID_ANY, _("Configure graphic packs"));
 		download_gp->Bind(wxEVT_BUTTON, &GettingStartedDialog::OnConfigureGPs, this);
 		sizer->Add(download_gp, 0, wxALIGN_CENTER | wxALL, 5);
 
@@ -170,13 +169,6 @@ wxPanel* GettingStartedDialog::CreatePage2()
 		m_page2.separateCheckbox = new wxCheckBox(sizer->GetStaticBox(), wxID_ANY, _("Open separate pad screen"));
 		option_sizer->Add(m_page2.separateCheckbox, 0, wxALL, 5);
 
-		m_page2.updateCheckbox = new wxCheckBox(sizer->GetStaticBox(), wxID_ANY, _("Automatically check for updates"));
-		option_sizer->Add(m_page2.updateCheckbox, 0, wxALL, 5);
-#if BOOST_OS_LINUX 
-		if (!std::getenv("APPIMAGE")) {
-			m_page2.updateCheckbox->Disable();
-		} 
-#endif
 		sizer->Add(option_sizer, 1, wxEXPAND, 5);
 		page2_sizer->Add(sizer, 0, wxALL | wxEXPAND, 5);
 	}
@@ -207,7 +199,6 @@ void GettingStartedDialog::ApplySettings()
 {
 	auto& config = GetWxGUIConfig();
 	m_page2.fullscreenCheckbox->SetValue(config.fullscreen.GetValue());
-	m_page2.updateCheckbox->SetValue(config.check_update.GetValue());
 	m_page2.separateCheckbox->SetValue(config.pad_open.GetValue());
 }
 
@@ -228,7 +219,6 @@ void GettingStartedDialog::OnClose(wxCloseEvent& event)
 
 	auto& wxGUIConfig = GetWxGUIConfig();
 	wxGUIConfig.fullscreen = m_page2.fullscreenCheckbox->GetValue();
-	wxGUIConfig.check_update = m_page2.updateCheckbox->GetValue();
 	wxGUIConfig.pad_open = m_page2.separateCheckbox->GetValue();
 
 	auto& config = GetConfig();
@@ -269,8 +259,6 @@ GettingStartedDialog::GettingStartedDialog(wxWindow* parent)
 
 void GettingStartedDialog::OnConfigureGPs(wxCommandEvent& event)
 {
-	DownloadGraphicPacksWindow dialog(this);
-	dialog.ShowModal();
 	GraphicPacksWindow2::RefreshGraphicPacks();
 	GraphicPacksWindow2 window(this, 0);
 	window.ShowModal();

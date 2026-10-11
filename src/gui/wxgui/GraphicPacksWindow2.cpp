@@ -1,7 +1,6 @@
 #include "helpers/wxHelpers.h"
 #include "wxgui/wxgui.h"
 #include "wxgui/GraphicPacksWindow2.h"
-#include "wxgui/DownloadGraphicPacksWindow.h"
 #include "wxgui/DownloadCustomGraphicPackWindow.h"
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "config/CemuConfig.h"
@@ -312,11 +311,7 @@ GraphicPacksWindow2::GraphicPacksWindow2(wxWindow* parent, uint64_t title_id_fil
 
 		auto* row = new wxWrapSizer(wxHORIZONTAL, 0);
 		
-		m_update_graphicPacks = new wxButton(m_right_panel, wxID_ANY, _("Download latest community graphic packs"));
-		m_update_graphicPacks->Bind(wxEVT_BUTTON, &GraphicPacksWindow2::OnCheckForUpdates, this);
-		row->Add(m_update_graphicPacks, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
-
-		m_download_from_url = new wxHyperlinkCtrl(m_right_panel, wxID_ANY, _("Or download pack from URL..."), _(""));
+		m_download_from_url = new wxHyperlinkCtrl(m_right_panel, wxID_ANY, _("Download pack from URL..."), _(""));
 		m_download_from_url->Bind(wxEVT_HYPERLINK, &GraphicPacksWindow2::OnClickCustomDownload, this);
 		row->Add(m_download_from_url, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
 
@@ -648,44 +643,6 @@ void GraphicPacksWindow2::OnClickCustomDownload(wxCommandEvent& event)
 	}
 }
 
-void GraphicPacksWindow2::OnCheckForUpdates(wxCommandEvent& event)
-{
-	DownloadGraphicPacksWindow frame(this);
-	SaveStateToConfig();
-	const int updateResult = frame.ShowModal();
-	if (updateResult == wxID_OK)
-	{
-		if (!CafeSystem::IsTitleRunning())
-		{
-			// remember virtual paths of all the enabled packs
-			std::map<std::string, std::string> previouslyEnabledPacks;
-			for(auto& it : GraphicPack2::GetGraphicPacks())
-			{
-				if(it->IsEnabled())
-					previouslyEnabledPacks.emplace(it->GetNormalizedPathString(), it->GetVirtualPath());
-			}
-			// reload graphic packs
-			RefreshGraphicPacks();
-			FillGraphicPackList();
-			// remove packs which are still present
-			for(auto& it : GraphicPack2::GetGraphicPacks())
-				previouslyEnabledPacks.erase(it->GetNormalizedPathString());
-			if(!previouslyEnabledPacks.empty())
-			{
-				std::string lost_packs;
-				for(auto& it : previouslyEnabledPacks)
-				{
-					lost_packs.append(it.second);
-					lost_packs.push_back('\n');
-				}
-				wxString message = _("This update removed or renamed the following graphic packs:");
-				message << "\n \n" << wxString::FromUTF8(lost_packs) << " \n" << _("You may need to set them up again.");
-				wxMessageBox(message, _("Warning"), wxOK | wxCENTRE | wxICON_INFORMATION, this);
-			}
-		}
-	}
-}
-
 void GraphicPacksWindow2::OnSizeChanged(wxSizeEvent& event)
 {
 	const auto obj = (wxSplitterWindow*)event.GetEventObject();
@@ -723,18 +680,11 @@ void GraphicPacksWindow2::OnInstalledGamesChanged(wxCommandEvent& event)
 
 void GraphicPacksWindow2::UpdateTitleRunning(bool running)
 {
-	m_update_graphicPacks->Enable(!running);
 	m_download_from_url->Enable(!running);
 	if(running)
-	{
 		m_download_from_url->SetToolTip(_("Graphic packs cannot be updated while a game is running."));
-		m_update_graphicPacks->SetToolTip(_("Graphic packs cannot be updated while a game is running."));
-	}
 	else
-	{
-		m_update_graphicPacks->SetToolTip(nullptr);
 		m_download_from_url->SetToolTip(nullptr);
-	}
 }
 
 void GraphicPacksWindow2::ReloadPack(const GraphicPackPtr& graphic_pack) const

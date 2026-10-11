@@ -4,7 +4,6 @@
 #include "TitleManager.h"
 #include "GeneralSettings2.h"
 #include "GameUpdateWindow.h"
-#include "CemuUpdateWindow.h"
 #include "GraphicPacksWindow2.h"
 #include "AudioDebuggerWindow.h"
 #include "input/InputSettings2.h"
@@ -154,7 +153,6 @@ enum
 	MAINFRAME_MENU_ID_DEBUG_DUMP_CURL_REQUESTS,
 	// help
 	MAINFRAME_MENU_ID_HELP_ABOUT = 21700,
-	MAINFRAME_MENU_ID_HELP_UPDATE,
 	// custom
 	MAINFRAME_ID_TIMER1 = 21800,
 };
@@ -236,7 +234,6 @@ EVT_MENU(MAINFRAME_MENU_ID_DEBUG_VIEW_AUDIO_DEBUGGER, MainWindow::OnDebugViewAud
 EVT_MENU(MAINFRAME_MENU_ID_DEBUG_VIEW_TEXTURE_RELATIONS, MainWindow::OnDebugViewTextureRelations)
 // help menu
 EVT_MENU(MAINFRAME_MENU_ID_HELP_ABOUT, MainWindow::OnHelpAbout)
-EVT_MENU(MAINFRAME_MENU_ID_HELP_UPDATE, MainWindow::OnHelpUpdate)
 // misc
 EVT_COMMAND(wxID_ANY, wxEVT_REQUEST_GAMELIST_REFRESH, MainWindow::OnRequestGameListRefresh)
 
@@ -433,7 +430,7 @@ void MainWindow::DestroyGameListAndStatusBar()
 
 wxString MainWindow::GetInitialWindowTitle()
 {
-	return BUILD_VERSION_WITH_NAME_STRING;
+	return WINDOW_TITLE_NAME;
 }
 
 void MainWindow::OnClose(wxCloseEvent& event)
@@ -872,9 +869,6 @@ void MainWindow::OpenSettings()
 		m_discord.reset();
 	#endif
 
-	if(config.check_update && !m_game_launched)
-		m_update_available = CemuUpdateWindow::IsUpdateAvailableAsync();
-
 	if (mlc_modified)
 		RecreateMenu();
 
@@ -1305,9 +1299,6 @@ void MainWindow::LoadSettings()
 {
 	GetConfigHandle().Load();
 	const auto& config = GetWxGUIConfig();
-
-	if(config.check_update)
-		m_update_available = CemuUpdateWindow::IsUpdateAvailableAsync();
 
 	if (config.window_position != Vector2i{ -1,-1 })
 		this->SetPosition({ config.window_position.x, config.window_position.y });
@@ -1854,21 +1845,6 @@ bool MainWindow::IsMenuHidden() const
 
 void MainWindow::OnTimer(wxTimerEvent& event)
 {
-	if(m_update_available.valid() && future_is_ready(m_update_available))
-	{
-		if(m_update_available.get())
-		{
-			wxMessageDialog dialog(this, _("There's a new update available.\nDo you want to update?"), _("Update notification"), wxCENTRE | wxYES_NO);
-			if(dialog.ShowModal() == wxID_YES)
-			{
-				CemuUpdateWindow update_window(this);
-				update_window.ShowModal();
-			}
-		}
-
-		m_update_available = {};
-	}
-
 	if (!IsFullScreen() || m_menu_visible)
 		return;
 
@@ -2141,12 +2117,6 @@ void MainWindow::OnHelpAbout(wxCommandEvent& event)
 	dlgAbout.ShowModal();
 }
 
-void MainWindow::OnHelpUpdate(wxCommandEvent& event)
-{
-	CemuUpdateWindow test(this);
-	test.ShowModal();
-}
-
 void MainWindow::RecreateMenu()
 {
 	if (m_menuBar)
@@ -2390,15 +2360,6 @@ void MainWindow::RecreateMenu()
 	m_menuBar->Append(debugMenu, _("&Debug"));
 	// help menu
 	wxMenu* helpMenu = new wxMenu();
-	m_check_update_menu = helpMenu->Append(MAINFRAME_MENU_ID_HELP_UPDATE, _("&Check for updates"));
-#if BOOST_OS_LINUX
-	if (!std::getenv("APPIMAGE")) {
-		m_check_update_menu->Enable(false);
-	}
-#elif BOOST_OS_BSD // BSD users must update from source so disable update checks
-	m_check_update_menu->Enable(false);
-#endif
-	helpMenu->AppendSeparator();
 	helpMenu->Append(MAINFRAME_MENU_ID_HELP_ABOUT, _("&About Cemu"));
 
 	m_menuBar->Append(helpMenu, _("&Help"));
@@ -2408,9 +2369,6 @@ void MainWindow::RecreateMenu()
 
 	if (m_game_launched)
 	{
-		if (m_check_update_menu)
-			m_check_update_menu->Enable(false);
-
 		m_memorySearcherMenuItem->Enable(true);
 		m_nfcMenu->Enable(MAINFRAME_MENU_ID_NFC_TOUCH_NFC_FILE, true);
 
@@ -2441,7 +2399,6 @@ void MainWindow::RestoreSettingsAfterGameExited()
 
 void MainWindow::UpdateSettingsAfterGameLaunch()
 {
-	m_update_available = {};
 	RecreateMenu();
 }
 

@@ -96,7 +96,7 @@ void CemuApp::DeterminePaths(std::set<fs::path>& failedWriteAccess) // for Windo
 	auto standardPaths = wxStandardPaths::Get();
 	fs::path exePath(wxHelper::MakeFSPath(standardPaths.GetExecutablePath()));
 	fs::path portablePath = exePath.parent_path() / "portable";
-	data_path = exePath.parent_path(); // the data path is always the same as the exe path
+	data_path = exePath.parent_path() / FORK_FOLDER_NAME;
 #ifdef CEMU_ALLOW_PORTABLE
 	if (fs::is_directory(portablePath, ec))
 	{
@@ -120,6 +120,7 @@ void CemuApp::DeterminePaths(std::set<fs::path>& failedWriteAccess) // for Windo
 			user_data_path = config_path = cache_path = exePath.parent_path();
 		}
 	}
+	cache_path /= FORK_FOLDER_NAME;
 	ActiveSettings::SetPaths(isPortable, exePath, user_data_path, config_path, cache_path, data_path, failedWriteAccess);
 }
 #endif
@@ -168,6 +169,7 @@ void CemuApp::DeterminePaths(std::set<fs::path>& failedWriteAccess) // for Linux
 		cache_path = standardPaths.GetUserDir(wxStandardPaths::Dir::Dir_Cache).ToStdString();
 		cache_path /= appName.ToStdString();
 	}
+	cache_path /= FORK_FOLDER_NAME;
 	ActiveSettings::SetPaths(isPortable, exePath, user_data_path, config_path, cache_path, data_path, failedWriteAccess);
 }
 #endif
@@ -200,6 +202,7 @@ void CemuApp::DeterminePaths(std::set<fs::path>& failedWriteAccess) // for MacOS
 		cache_path = standardPaths.GetUserDir(wxStandardPaths::Dir::Dir_Cache).ToStdString();
 		cache_path /= appName.ToStdString();
 	}
+	cache_path /= FORK_FOLDER_NAME;
 	ActiveSettings::SetPaths(isPortable, exePath, user_data_path, config_path, cache_path, data_path, failedWriteAccess);
 }
 #endif
@@ -275,12 +278,12 @@ bool CemuApp::OnInit()
 	HostModule::Startup();
 	HostModule::BeforeConfigLoad();
 
-	GetConfigHandle().SetFilename(ActiveSettings::GetConfigPath("settings.xml").generic_wstring());
+	GetConfigHandle().SetFilename(ActiveSettings::GetConfigPath(FORK_SETTINGS_FILE).generic_wstring());
 
 	auto& config = GetWxGUIConfig();
 
 	std::error_code ec;
-	bool isFirstStart = !fs::exists(ActiveSettings::GetConfigPath("settings.xml"), ec);
+	bool isFirstStart = !fs::exists(ActiveSettings::GetConfigPath(FORK_SETTINGS_FILE), ec);
 
 	NetworkConfig::LoadOnce();
 	if (!isFirstStart)

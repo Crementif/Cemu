@@ -49,7 +49,6 @@ private:
 	std::vector<wxChoice*> m_active_preset;
 	wxButton* m_reload_shaders;
 	wxHyperlinkCtrl* m_download_from_url;
-	wxButton* m_update_graphicPacks;
 	wxInfoBar* m_info_bar;
 
 	GraphicPackPtr m_shown_graphic_pack;
@@ -67,7 +66,6 @@ private:
 	void OnActivePresetChanged(wxCommandEvent& event);
 	void OnReloadShaders(wxCommandEvent& event);
 	void OnClickCustomDownload(wxCommandEvent& event);
-	void OnCheckForUpdates(wxCommandEvent& event);
 	void OnSizeChanged(wxSizeEvent& event);
 	void SashPositionChanged(wxEvent& event);
 	void OnFilterUpdate(wxEvent& event);

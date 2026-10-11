@@ -105,7 +105,6 @@ public:
 	void OnAccountSelect(wxCommandEvent& event);
 	void OnConsoleLanguage(wxCommandEvent& event);
 	void OnHelpAbout(wxCommandEvent& event);
-	void OnHelpUpdate(wxCommandEvent& event);
 	void OnDebugSetting(wxCommandEvent& event);
 	void OnDebugLoggingToggleFlagGeneric(wxCommandEvent& event);
 	void OnPPCInfoToggle(wxCommandEvent& event);
@@ -191,9 +190,6 @@ private:
 	DebuggerWindow2* m_debugger_window = nullptr;
 	LoggingWindow* m_logging_window = nullptr;
 
-	std::future<bool> m_update_available;
-
-	wxMenuItem* m_check_update_menu{};
 	void LoadSettings();
 	void SaveSettings();
 

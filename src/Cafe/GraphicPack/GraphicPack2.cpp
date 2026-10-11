@@ -105,6 +105,12 @@ void GraphicPack2::LoadAll()
 		if (!it->is_directory(ec))
 			continue;
 		fs::path gfxPackPath = it->path();
+		// the community packs ship with this build instead
+		if (it.depth() == 0 && gfxPackPath.filename() == "downloadedGraphicPacks")
+		{
+			it.disable_recursion_pending();
+			continue;
+		}
 		if (fs::exists(gfxPackPath / "rules.txt", ec))
 		{
 			LoadGraphicPack(gfxPackPath);
