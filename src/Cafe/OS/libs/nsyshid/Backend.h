@@ -1,5 +1,6 @@
 #pragma once
 
+#include <condition_variable>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -73,6 +74,33 @@ namespace nsyshid
 	static_assert(offsetof(HID_t, ifIndex) == 0xC, "");
 	static_assert(offsetof(HID_t, protocol) == 0xE, "");
 
+	// runs the transfers of one pipe in submission order on its own thread
+	class TransferQueue
+	{
+	  public:
+		explicit TransferQueue(const char* threadName);
+		~TransferQueue();
+
+		TransferQueue(const TransferQueue&) = delete;
+		TransferQueue& operator=(const TransferQueue&) = delete;
+
+		// returns false once the queue was stopped
+		bool Push(std::function<void()> transfer);
+
+		// runs the remaining transfers and joins the thread
+		void Stop();
+
+	  private:
+		void ThreadFunc();
+
+		const char* m_threadName;
+		std::thread m_thread;
+		std::mutex m_mutex;
+		std::condition_variable m_condition;
+		std::deque<std::function<void()>> m_transfers;
+		bool m_stopped = false;
+	};
+
 	class Device
 	{
 	  public:
@@ -99,6 +127,11 @@ namespace nsyshid
 		uint8 m_protocol;
 		uint16 m_maxPacketSizeRX;
 		uint16 m_maxPacketSizeTX;
+
+		// separate queues so a pending read doesn't hold back control or write transfers
+		TransferQueue m_controlQueue;
+		TransferQueue m_readQueue;
+		TransferQueue m_writeQueue;
 
 		virtual void AssignHID(HID_t* hid);
 
