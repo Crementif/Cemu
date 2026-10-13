@@ -14,11 +14,6 @@ namespace nsyshid
 
 	std::list<std::shared_ptr<Device>> deviceList;
 
-	typedef struct _HIDClient_t
-	{
-		uint32be callbackFunc; // attach/detach callback
-	} HIDClient_t;
-
 	std::list<HIDClient_t*> HIDClientList;
 
 	std::recursive_mutex hidMutex;
@@ -192,7 +187,7 @@ namespace nsyshid
 			auto it = std::find(deviceList.begin(), deviceList.end(), device);
 			if (it != deviceList.end())
 			{
-				cemuLog_logDebug(LogType::Force,
+				cemuLog_logDebug(LogType::NSYSHID,
 								 "nsyshid.AttachDevice(): failed to attach device: {:04x}:{:04x}: already attached",
 								 device->m_vendorId,
 								 device->m_productId);
@@ -203,7 +198,7 @@ namespace nsyshid
 		HID_t* hidDevice = GetFreeHID();
 		if (hidDevice == nullptr)
 		{
-			cemuLog_logDebug(LogType::Force,
+			cemuLog_logDebug(LogType::NSYSHID,
 							 "nsyshid.AttachDevice(): failed to attach device: {:04x}:{:04x}: no free device slots left",
 							 device->m_vendorId,
 							 device->m_productId);
@@ -219,7 +214,7 @@ namespace nsyshid
 			DoAttachCallbackAsync(client, device);
 		}
 
-		cemuLog_logDebug(LogType::Force, "nsyshid.AttachDevice(): device attached: {:04x}:{:04x}",
+		cemuLog_logDebug(LogType::NSYSHID, "nsyshid.AttachDevice(): device attached: {:04x}:{:04x}",
 						 device->m_vendorId,
 						 device->m_productId);
 		return true;
@@ -234,7 +229,7 @@ namespace nsyshid
 			auto it = std::find(deviceList.begin(), deviceList.end(), device);
 			if (it == deviceList.end())
 			{
-				cemuLog_logDebug(LogType::Force, "nsyshid.DetachDevice(): device not found: {:04x}:{:04x}",
+				cemuLog_logDebug(LogType::NSYSHID, "nsyshid.DetachDevice(): device not found: {:04x}:{:04x}",
 								 device->m_vendorId,
 								 device->m_productId);
 				return;
@@ -251,7 +246,7 @@ namespace nsyshid
 
 		device->Close();
 
-		cemuLog_logDebug(LogType::Force, "nsyshid.DetachDevice(): device removed: {:04x}:{:04x}",
+		cemuLog_logDebug(LogType::NSYSHID, "nsyshid.DetachDevice(): device removed: {:04x}:{:04x}",
 						 device->m_vendorId,
 						 device->m_productId);
 	}
@@ -269,11 +264,8 @@ namespace nsyshid
 		return nullptr;
 	}
 
-	void export_HIDAddClient(PPCInterpreter_t* hCPU)
+	sint32 HIDAddClient(HIDClient_t* hidClient, MPTR callbackFuncMPTR)
 	{
-		ppcDefineParamTypePtr(hidClient, HIDClient_t, 0);
-		ppcDefineParamMPTR(callbackFuncMPTR, 1);
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDAddClient(0x{:08x},0x{:08x})", hCPU->gpr[3], hCPU->gpr[4]);
 		hidClient->callbackFunc = callbackFuncMPTR;
 
 		std::lock_guard<std::recursive_mutex> lock(hidMutex);
@@ -285,14 +277,11 @@ namespace nsyshid
 			DoAttachCallback(hidClient, device);
 		}
 
-		osLib_returnFromFunction(hCPU, 0);
+		return 0;
 	}
 
-	void export_HIDDelClient(PPCInterpreter_t* hCPU)
+	sint32 HIDDelClient(HIDClient_t* hidClient)
 	{
-		ppcDefineParamTypePtr(hidClient, HIDClient_t, 0);
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDDelClient(0x{:08x})", hCPU->gpr[3]);
-
 		std::lock_guard<std::recursive_mutex> lock(hidMutex);
 		DetachClientFromList(hidClient);
 
@@ -302,40 +291,7 @@ namespace nsyshid
 			DoDetachCallback(hidClient, device);
 		}
 
-		osLib_returnFromFunction(hCPU, 0);
-	}
-
-	void _debugPrintHex(const std::string prefix, const uint8* data, size_t size)
-	{
-		constexpr size_t BYTES_PER_LINE = 16;
-
-		std::string out;
-		for (size_t row_start = 0; row_start < size; row_start += BYTES_PER_LINE)
-		{
-			out += fmt::format("{:06x}: ", row_start);
-			for (size_t i = 0; i < BYTES_PER_LINE; ++i)
-			{
-				if (row_start + i < size)
-				{
-					out += fmt::format("{:02x} ", data[row_start + i]);
-				}
-				else
-				{
-					out += "   ";
-				}
-			}
-			out += " ";
-			for (size_t i = 0; i < BYTES_PER_LINE; ++i)
-			{
-				if (row_start + i < size)
-				{
-					char c = static_cast<char>(data[row_start + i]);
-					out += std::isprint(c, std::locale::classic()) ? c : '.';
-				}
-			}
-			out += "\n";
-		}
-		cemuLog_logDebug(LogType::Force, "[{}] Data: \n{}", prefix, out);
+		return 0;
 	}
 
 	void DoHIDTransferCallback(MPTR callbackFuncMPTR, MPTR callbackParamMPTR, uint32 hidHandle, uint32 errorCode,
@@ -366,25 +322,14 @@ namespace nsyshid
 		}
 	}
 
-	void export_HIDGetDescriptor(PPCInterpreter_t* hCPU)
+	sint32 HIDGetDescriptor(uint32 hidHandle, uint8 descType, uint8 descIndex, uint16 lang, uint8* output, uint32 outputMaxLength, MPTR cbFuncMPTR, MPTR cbParamMPTR)
 	{
-		ppcDefineParamU32(hidHandle, 0);	   // r3
-		ppcDefineParamU8(descType, 1);		   // r4
-		ppcDefineParamU8(descIndex, 2);		   // r5
-		ppcDefineParamU16(lang, 3);			   // r6
-		ppcDefineParamUStr(output, 4);		   // r7
-		ppcDefineParamU32(outputMaxLength, 5); // r8
-		ppcDefineParamMPTR(cbFuncMPTR, 6);	   // r9
-		ppcDefineParamMPTR(cbParamMPTR, 7);	   // r10
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDGetDescriptor(0x{:08x}, 0x{:02x}, 0x{:02x}, 0x{:04x}, 0x{:x}, 0x{:08x}, 0x{:08x}, 0x{:08x})",
-					hCPU->gpr[3], hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6], hCPU->gpr[7], hCPU->gpr[8], hCPU->gpr[9], hCPU->gpr[10]);
 
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
 		if (device == nullptr)
 		{
-			cemuLog_log(LogType::Force, "nsyshid.HIDGetDescriptor(): Unable to find device with hid handle {}", hidHandle);
-			osLib_returnFromFunction(hCPU, -1);
-			return;
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDGetDescriptor(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
 		}
 
 		// issue request (synchronous or asynchronous)
@@ -405,7 +350,7 @@ namespace nsyshid
 				.detach();
 			returnCode = 0;
 		}
-		osLib_returnFromFunction(hCPU, returnCode);
+		return returnCode;
 	}
 
 	void _hidSetIdleAsync(std::shared_ptr<Device> device, uint8 ifIndex, uint8 reportId, uint8 duration, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
@@ -430,23 +375,14 @@ namespace nsyshid
 		}
 	}
 
-	void export_HIDSetIdle(PPCInterpreter_t* hCPU)
+	sint32 HIDSetIdle(uint32 hidHandle, uint8 ifIndex, uint8 reportId, uint8 duration, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
-		ppcDefineParamU32(hidHandle, 0);		  // r3
-		ppcDefineParamU8(ifIndex, 1);			  // r4
-		ppcDefineParamU8(reportId, 2);			  // r5
-		ppcDefineParamU8(duration, 3);			  // r6
-		ppcDefineParamMPTR(callbackFuncMPTR, 4);  // r7
-		ppcDefineParamMPTR(callbackParamMPTR, 5); // r8
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDSetIdle(0x{:08x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:08x}, 0x{:08x})", hCPU->gpr[3],
-					hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6], hCPU->gpr[7], hCPU->gpr[8]);
 
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
 		if (device == nullptr)
 		{
-			cemuLog_log(LogType::Force, "nsyshid.HIDSetIdle(): Unable to find device with hid handle {}", hidHandle);
-			osLib_returnFromFunction(hCPU, -1);
-			return;
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDSetIdle(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
 		}
 
 		// issue request (synchronous or asynchronous)
@@ -467,7 +403,7 @@ namespace nsyshid
 				.detach();
 			returnCode = 0;
 		}
-		osLib_returnFromFunction(hCPU, returnCode);
+		return returnCode;
 	}
 
 	void _hidSetProtocolAsync(std::shared_ptr<Device> device, uint8 ifIndex, uint8 protocol, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
@@ -492,22 +428,14 @@ namespace nsyshid
 		}
 	}
 
-	void export_HIDSetProtocol(PPCInterpreter_t* hCPU)
+	sint32 HIDSetProtocol(uint32 hidHandle, uint8 ifIndex, uint8 protocol, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
-		ppcDefineParamU32(hidHandle, 0);		  // r3
-		ppcDefineParamU8(ifIndex, 1);			  // r4
-		ppcDefineParamU8(protocol, 2);			  // r5
-		ppcDefineParamMPTR(callbackFuncMPTR, 3);  // r6
-		ppcDefineParamMPTR(callbackParamMPTR, 4); // r7
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDSetProtocol(0x{:08x}, 0x{:02x}, 0x{:02x}, 0x{:08x}, 0x{:08x})", hCPU->gpr[3],
-					hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6], hCPU->gpr[7]);
 
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
 		if (device == nullptr)
 		{
-			cemuLog_log(LogType::Force, "nsyshid.HIDSetProtocol(): Unable to find device with hid handle {}", hidHandle);
-			osLib_returnFromFunction(hCPU, -1);
-			return;
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDSetProtocol(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
 		}
 		// issue request (synchronous or asynchronous)
 		sint32 returnCode = 0;
@@ -527,14 +455,14 @@ namespace nsyshid
 				.detach();
 			returnCode = 0;
 		}
-		osLib_returnFromFunction(hCPU, returnCode);
+		return returnCode;
 	}
 
 	// handler for async HIDSetReport transfers
 	void _hidSetReportAsync(std::shared_ptr<Device> device, uint8 reportType, uint8 reportId, uint8* data, uint32 length,
 							MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
-		cemuLog_logDebug(LogType::Force, "_hidSetReportAsync begin");
+		cemuLog_logDebug(LogType::NSYSHID, "_hidSetReportAsync begin");
 		ReportMessage message(reportType, reportId, data, length);
 		if (device->SetReport(&message))
 		{
@@ -560,31 +488,21 @@ namespace nsyshid
 	sint32 _hidSetReportSync(std::shared_ptr<Device> device, uint8 reportType, uint8 reportId,
 							 uint8* data, uint32 length, coreinit::OSEvent* event)
 	{
-		_debugPrintHex("_hidSetReportSync Begin", data, length);
 		sint32 returnCode = 0;
 		ReportMessage message(reportType, reportId, data, length);
 		if (device->SetReport(&message))
 		{
 			returnCode = length;
 		}
-		cemuLog_logDebug(LogType::Force, "_hidSetReportSync end. returnCode: {}", returnCode);
+		cemuLog_logDebug(LogType::NSYSHID, "_hidSetReportSync end. returnCode: {}", returnCode);
 		coreinit::OSSignalEvent(event);
 		return returnCode;
 	}
 
-	void export_HIDSetReport(PPCInterpreter_t* hCPU)
+	sint32 HIDSetReport(uint32 hidHandle, uint8 reportType, uint8 reportId, uint8* data, uint32 dataLength, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
-		ppcDefineParamU32(hidHandle, 0);		  // r3
-		ppcDefineParamU8(reportType, 1);		  // r4
-		ppcDefineParamU8(reportId, 2);			  // r5
-		ppcDefineParamUStr(data, 3);			  // r6
-		ppcDefineParamU32(dataLength, 4);		  // r7
-		ppcDefineParamMPTR(callbackFuncMPTR, 5);  // r8
-		ppcDefineParamMPTR(callbackParamMPTR, 6); // r9
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDSetReport(0x{:08x}, 0x{:02x}, 0x{:02x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x})", hCPU->gpr[3],
-					hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6], hCPU->gpr[7], hCPU->gpr[8], hCPU->gpr[9]);
-
-		_debugPrintHex("HIDSetReport", data, dataLength);
+		if (cemuLog_isLoggingEnabled(LogType::NSYSHID))
+			cemuLog_logHexDump(LogType::NSYSHID, data, dataLength);
 
 #ifdef CEMU_DEBUG_ASSERT
 		if (reportType != 2 || reportId != 0)
@@ -594,9 +512,8 @@ namespace nsyshid
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
 		if (device == nullptr)
 		{
-			cemuLog_log(LogType::Force, "nsyshid.HIDSetReport(): Unable to find device with hid handle {}", hidHandle);
-			osLib_returnFromFunction(hCPU, -1);
-			return;
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDSetReport(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
 		}
 
 		// issue request (synchronous or asynchronous)
@@ -618,15 +535,15 @@ namespace nsyshid
 				.detach();
 			returnCode = 0;
 		}
-		osLib_returnFromFunction(hCPU, returnCode);
+		return returnCode;
 	}
 
 	sint32 _hidReadInternalSync(std::shared_ptr<Device> device, uint8* data, sint32 maxLength)
 	{
-		cemuLog_logDebug(LogType::Force, "HidRead Begin (Length 0x{:08x})", maxLength);
+		cemuLog_logDebug(LogType::NSYSHID, "HidRead Begin (Length 0x{:08x})", maxLength);
 		if (!device->IsOpened())
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidReadInternalSync(): cannot read from a non-opened device");
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidReadInternalSync(): cannot read from a non-opened device");
 			return -1;
 		}
 		memset(data, 0, maxLength);
@@ -636,7 +553,7 @@ namespace nsyshid
 		{
 		case Device::ReadResult::Success:
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidReadInternalSync(): read {} of {} bytes",
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidReadInternalSync(): read {} of {} bytes",
 							 message.bytesRead,
 							 maxLength);
 			return message.bytesRead;
@@ -644,18 +561,18 @@ namespace nsyshid
 		break;
 		case Device::ReadResult::Error:
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidReadInternalSync(): read error");
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidReadInternalSync(): read error");
 			return -1;
 		}
 		break;
 		case Device::ReadResult::ErrorTimeout:
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidReadInternalSync(): read error: timeout");
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidReadInternalSync(): read error: timeout");
 			return -108;
 		}
 		break;
 		}
-		cemuLog_logDebug(LogType::Force, "nsyshid.hidReadInternalSync(): read error: unknown");
+		cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidReadInternalSync(): read error: unknown");
 		return -1;
 	}
 
@@ -682,22 +599,14 @@ namespace nsyshid
 		return returnCode;
 	}
 
-	void export_HIDRead(PPCInterpreter_t* hCPU)
+	sint32 HIDRead(uint32 hidHandle, uint8* data, uint32 maxLength, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
-		ppcDefineParamU32(hidHandle, 0);		  // r3
-		ppcDefineParamUStr(data, 1);			  // r4
-		ppcDefineParamU32(maxLength, 2);		  // r5
-		ppcDefineParamMPTR(callbackFuncMPTR, 3);  // r6
-		ppcDefineParamMPTR(callbackParamMPTR, 4); // r7
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDRead(0x{:x},0x{:08x},0x{:08x},0x{:08x},0x{:08x})", hCPU->gpr[3],
-					hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6], hCPU->gpr[7]);
 
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
 		if (device == nullptr)
 		{
-			cemuLog_log(LogType::Force, "nsyshid.HIDRead(): Unable to find device with hid handle {}", hidHandle);
-			osLib_returnFromFunction(hCPU, -1);
-			return;
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDRead(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
 		}
 		sint32 returnCode = 0;
 		if (callbackFuncMPTR != MPTR_NULL)
@@ -716,15 +625,15 @@ namespace nsyshid
 			returnCode = res.get();
 		}
 
-		osLib_returnFromFunction(hCPU, returnCode);
+		return returnCode;
 	}
 
 	sint32 _hidWriteInternalSync(std::shared_ptr<Device> device, uint8* data, sint32 maxLength)
 	{
-		cemuLog_logDebug(LogType::Force, "HidWrite Begin (Length 0x{:08x})", maxLength);
+		cemuLog_logDebug(LogType::NSYSHID, "HidWrite Begin (Length 0x{:08x})", maxLength);
 		if (!device->IsOpened())
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidWriteInternalSync(): cannot write to a non-opened device");
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidWriteInternalSync(): cannot write to a non-opened device");
 			return -1;
 		}
 		WriteMessage message(data, maxLength, 0);
@@ -733,25 +642,25 @@ namespace nsyshid
 		{
 		case Device::WriteResult::Success:
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidWriteInternalSync(): wrote {} of {} bytes", message.bytesWritten,
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidWriteInternalSync(): wrote {} of {} bytes", message.bytesWritten,
 							 maxLength);
 			return message.bytesWritten;
 		}
 		break;
 		case Device::WriteResult::Error:
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidWriteInternalSync(): write error");
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidWriteInternalSync(): write error");
 			return -1;
 		}
 		break;
 		case Device::WriteResult::ErrorTimeout:
 		{
-			cemuLog_logDebug(LogType::Force, "nsyshid.hidWriteInternalSync(): write error: timeout");
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidWriteInternalSync(): write error: timeout");
 			return -108;
 		}
 		break;
 		}
-		cemuLog_logDebug(LogType::Force, "nsyshid.hidWriteInternalSync(): write error: unknown");
+		cemuLog_logDebug(LogType::NSYSHID, "nsyshid.hidWriteInternalSync(): write error: unknown");
 		return -1;
 	}
 
@@ -779,22 +688,14 @@ namespace nsyshid
 		return returnCode;
 	}
 
-	void export_HIDWrite(PPCInterpreter_t* hCPU)
+	sint32 HIDWrite(uint32 hidHandle, uint8* data, uint32 maxLength, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
-		ppcDefineParamU32(hidHandle, 0);		  // r3
-		ppcDefineParamUStr(data, 1);			  // r4
-		ppcDefineParamU32(maxLength, 2);		  // r5
-		ppcDefineParamMPTR(callbackFuncMPTR, 3);  // r6
-		ppcDefineParamMPTR(callbackParamMPTR, 4); // r7
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDWrite(0x{:x},0x{:08x},0x{:08x},0x{:08x},0x{:08x})", hCPU->gpr[3],
-					hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6], hCPU->gpr[7]);
 
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
 		if (device == nullptr)
 		{
-			cemuLog_log(LogType::Force, "nsyshid.HIDWrite(): Unable to find device with hid handle {}", hidHandle);
-			osLib_returnFromFunction(hCPU, -1);
-			return;
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDWrite(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
 		}
 		sint32 returnCode = 0;
 		if (callbackFuncMPTR != MPTR_NULL)
@@ -813,22 +714,16 @@ namespace nsyshid
 			returnCode = res.get();
 		}
 
-		osLib_returnFromFunction(hCPU, returnCode);
+		return returnCode;
 	}
 
-	void export_HIDDecodeError(PPCInterpreter_t* hCPU)
+	sint32 HIDDecodeError(uint32 errorCode, uint32be* ukn0, uint32be* ukn1)
 	{
-		ppcDefineParamU32(errorCode, 0);
-		ppcDefineParamTypePtr(ukn0, uint32be, 1);
-		ppcDefineParamTypePtr(ukn1, uint32be, 2);
-		cemuLog_logDebug(LogType::Force, "nsyshid.HIDDecodeError(0x{:08x},0x{:08x},0x{:08x})", hCPU->gpr[3],
-					hCPU->gpr[4], hCPU->gpr[5]);
-
 		// todo
 		*ukn0 = 0x3FF;
 		*ukn1 = (uint32)-0x7FFF;
 
-		osLib_returnFromFunction(hCPU, 0);
+		return 0;
 	}
 
 	void Backend::DetachAllDevices()
@@ -954,18 +849,17 @@ namespace nsyshid
 
 		void RPLMapped() override
 		{
-			osLib_addFunction("nsyshid", "HIDAddClient", export_HIDAddClient);
-			osLib_addFunction("nsyshid", "HIDDelClient", export_HIDDelClient);
-			osLib_addFunction("nsyshid", "HIDGetDescriptor", export_HIDGetDescriptor);
-			osLib_addFunction("nsyshid", "HIDSetIdle", export_HIDSetIdle);
-			osLib_addFunction("nsyshid", "HIDSetProtocol", export_HIDSetProtocol);
-			osLib_addFunction("nsyshid", "HIDSetReport", export_HIDSetReport);
+			cafeExportRegister("nsyshid", HIDAddClient, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDDelClient, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDGetDescriptor, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDSetIdle, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDSetProtocol, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDSetReport, LogType::NSYSHID);
 
-			osLib_addFunction("nsyshid", "HIDRead", export_HIDRead);
-			osLib_addFunction("nsyshid", "HIDWrite", export_HIDWrite);
+			cafeExportRegister("nsyshid", HIDRead, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDWrite, LogType::NSYSHID);
 
-			osLib_addFunction("nsyshid", "HIDDecodeError", export_HIDDecodeError);
-
+			cafeExportRegister("nsyshid", HIDDecodeError, LogType::NSYSHID);
 		};
 		void rpl_entry(uint32 moduleHandle, coreinit::RplEntryReason reason) override
 		{
