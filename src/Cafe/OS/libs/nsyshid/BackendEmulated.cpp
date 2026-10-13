@@ -2,6 +2,7 @@
 
 #include "Dimensions.h"
 #include "Infinity.h"
+#include "Keyboard.h"
 #include "Skylander.h"
 #include "config/CemuConfig.h"
 #include "SkylanderXbox360.h"
@@ -51,6 +52,26 @@ namespace nsyshid::backend::emulated
 			// Add Dimensions Toypad
 			auto device = std::make_shared<DimensionsToypadDevice>();
 			AttachDevice(device);
+		}
+		UpdateVisibleDevices();
+	}
+
+	// the keyboard can be connected and disconnected while a title is running
+	void BackendEmulated::UpdateVisibleDevices()
+	{
+		auto keyboard = FindDevice([](const std::shared_ptr<Device>& device) {
+			return dynamic_cast<KeyboardDevice*>(device.get()) != nullptr;
+		});
+		const bool emulateKeyboard = GetConfig().emulated_usb_devices.emulate_keyboard;
+		if (emulateKeyboard && !keyboard)
+		{
+			cemuLog_log(LogType::NSYSHID, "Attaching emulated keyboard");
+			AttachDevice(std::make_shared<KeyboardDevice>());
+		}
+		else if (!emulateKeyboard && keyboard)
+		{
+			cemuLog_log(LogType::NSYSHID, "Detaching emulated keyboard");
+			DetachDevice(keyboard);
 		}
 	}
 } // namespace nsyshid::backend::emulated

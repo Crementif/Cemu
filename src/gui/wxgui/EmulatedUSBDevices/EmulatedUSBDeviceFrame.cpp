@@ -47,6 +47,7 @@ EmulatedUSBDeviceFrame::EmulatedUSBDeviceFrame(wxWindow* parent)
 	notebook->AddPage(AddSkylanderPage(notebook), _("Skylanders Portal"));
 	notebook->AddPage(AddInfinityPage(notebook), _("Infinity Base"));
 	notebook->AddPage(AddDimensionsPage(notebook), _("Dimensions Toypad"));
+	notebook->AddPage(AddKeyboardPage(notebook), _("Keyboard"));
 
 	sizer->Add(notebook, 1, wxEXPAND | wxALL, 2);
 
@@ -118,6 +119,29 @@ wxPanel* EmulatedUSBDeviceFrame::AddInfinityPage(wxNotebook* notebook)
 	boxSizer->Add(AddInfinityRow("Player Two Ability Two", 8, box), 1, wxEXPAND | wxALL, 2);
 
 	panelSizer->Add(boxSizer, 1, wxEXPAND | wxALL, 2);
+	panel->SetSizerAndFit(panelSizer);
+
+	return panel;
+}
+
+wxPanel* EmulatedUSBDeviceFrame::AddKeyboardPage(wxNotebook* notebook)
+{
+	auto* panel = new wxPanel(notebook);
+	auto* panelSizer = new wxBoxSizer(wxVERTICAL);
+	auto* box = new wxStaticBox(panel, wxID_ANY, _("USB Keyboard"));
+	auto* boxSizer = new wxStaticBoxSizer(box, wxVERTICAL);
+
+	m_emulateKeyboard = new wxCheckBox(box, wxID_ANY, _("Emulate USB Keyboard"));
+	m_emulateKeyboard->SetValue(GetConfig().emulated_usb_devices.emulate_keyboard);
+	m_emulateKeyboard->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+		GetConfig().emulated_usb_devices.emulate_keyboard = m_emulateKeyboard->IsChecked();
+		GetConfigHandle().Save();
+		nsyshid::UpdateEmulatedDevices();
+	});
+	boxSizer->Add(m_emulateKeyboard, 0, wxEXPAND | wxALL, 2);
+	boxSizer->Add(new wxStaticText(box, wxID_ANY, _("Keys typed into the game window are sent to the emulated keyboard.\nKeys bound to an emulated controller are sent as well.")), 0, wxEXPAND | wxALL, 2);
+
+	panelSizer->Add(boxSizer, 0, wxEXPAND | wxALL, 2);
 	panel->SetSizerAndFit(panelSizer);
 
 	return panel;
