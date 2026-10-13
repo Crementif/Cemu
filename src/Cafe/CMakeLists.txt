@@ -435,6 +435,8 @@ add_library(CemuCafe
   OS/libs/nsyshid/SkylanderXbox360.h
   OS/libs/nsyshid/g721/g721.cpp
   OS/libs/nsyshid/g721/g721.h
+  OS/libs/nsyskbd/KeyboardLayouts.cpp
+  OS/libs/nsyskbd/KeyboardLayouts.h
   OS/libs/nsyskbd/nsyskbd.cpp
   OS/libs/nsyskbd/nsyskbd.h
   OS/libs/nsysnet/nsysnet.cpp
