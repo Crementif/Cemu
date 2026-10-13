@@ -58,11 +58,6 @@ namespace nsyshid
 
 	std::list<std::shared_ptr<AttachedDevice>> deviceList;
 
-	struct HIDClient_t
-	{
-		uint32be callbackFunc; // attach/detach callback
-	};
-
 	std::list<HIDClient_t*> HIDClientList;
 
 	std::recursive_mutex hidMutex;

@@ -114,6 +114,7 @@ const std::map<LogType, std::string> g_logging_window_mapping
 	{LogType::NFC,                "NFC"},
 	{LogType::NTAG,               "NTAG"},
 	{LogType::NSYSHID,            "nsyshid"},
+	{LogType::NSYSKBD,            "nsyskbd"},
 	{LogType::Patches,            "Graphic pack patches"},
 	{LogType::TextureCache,       "Texture cache"},
 	{LogType::TextureReadback,    "Texture readback"},

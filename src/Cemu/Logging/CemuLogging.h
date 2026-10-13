@@ -43,6 +43,7 @@ enum class LogType : sint32
 	nlibcurl = 41,
 	SWKBD = 45,
 	NSYSHID = 46,
+	NSYSKBD = 47,
 
 	PRUDP = 40,
 
