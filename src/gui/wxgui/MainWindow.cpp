@@ -2325,6 +2325,7 @@ void MainWindow::RecreateMenu()
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NFC), _("nfc API"))->Check(cemuLog_isLoggingEnabled(LogType::NFC));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NTAG), _("ntag API"))->Check(cemuLog_isLoggingEnabled(LogType::NTAG));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::Socket), _("nsysnet API"))->Check(cemuLog_isLoggingEnabled(LogType::Socket));
+	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NSYSHID), _("nsyshid API"))->Check(cemuLog_isLoggingEnabled(LogType::NSYSHID));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::H264), _("h264 API"))->Check(cemuLog_isLoggingEnabled(LogType::H264));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::GX2), _("gx2 API"))->Check(cemuLog_isLoggingEnabled(LogType::GX2));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::SWKBD), _("swkbd API"))->Check(cemuLog_isLoggingEnabled(LogType::SWKBD));

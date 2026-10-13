@@ -10,7 +10,7 @@ namespace nsyshid::backend::emulated
 {
 	BackendEmulated::BackendEmulated()
 	{
-		cemuLog_logDebug(LogType::Force, "nsyshid::BackendEmulated: emulated backend initialised");
+		cemuLog_logDebug(LogType::NSYSHID, "nsyshid::BackendEmulated: emulated backend initialised");
 	}
 
 	BackendEmulated::~BackendEmulated() = default;
@@ -24,7 +24,7 @@ namespace nsyshid::backend::emulated
 	{
 		if (GetConfig().emulated_usb_devices.emulate_skylander_portal && !FindDeviceById(0x1430, 0x0150))
 		{
-			cemuLog_logDebug(LogType::Force, "Attaching Emulated Portal");
+			cemuLog_logDebug(LogType::NSYSHID, "Attaching Emulated Portal");
 			// Add Skylander Portal
 			auto device = std::make_shared<SkylanderPortalDevice>();
 			AttachDevice(device);
@@ -32,7 +32,7 @@ namespace nsyshid::backend::emulated
 	#ifdef HAS_LIBUSB
 		else if (auto usb_portal = FindDeviceById(0x1430, 0x1F17))
 		{
-			cemuLog_logDebug(LogType::Force, "Attaching Xbox 360 Portal");
+			cemuLog_logDebug(LogType::NSYSHID, "Attaching Xbox 360 Portal");
 			// Add Skylander Xbox 360 Portal
 			auto device = std::make_shared<SkylanderXbox360PortalLibusb>(usb_portal);
 			AttachDevice(device);
@@ -40,14 +40,14 @@ namespace nsyshid::backend::emulated
 	#endif
 		if (GetConfig().emulated_usb_devices.emulate_infinity_base && !FindDeviceById(0x0E6F, 0x0129))
 		{
-			cemuLog_logDebug(LogType::Force, "Attaching Emulated Base");
+			cemuLog_logDebug(LogType::NSYSHID, "Attaching Emulated Base");
 			// Add Infinity Base
 			auto device = std::make_shared<InfinityBaseDevice>();
 			AttachDevice(device);
 		}
 		if (GetConfig().emulated_usb_devices.emulate_dimensions_toypad && !FindDeviceById(0x0E6F, 0x0241))
 		{
-			cemuLog_logDebug(LogType::Force, "Attaching Emulated Toypad");
+			cemuLog_logDebug(LogType::NSYSHID, "Attaching Emulated Toypad");
 			// Add Dimensions Toypad
 			auto device = std::make_shared<DimensionsToypadDevice>();
 			AttachDevice(device);
