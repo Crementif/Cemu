@@ -168,6 +168,9 @@ namespace nsyshid
 		// called from nsyshid when this backend is detached - do not call this yourself!
 		void OnDetach();
 
+		// called from nsyshid when the emulated device settings changed - do not call this yourself!
+		void OnSettingsChanged();
+
 		bool IsBackendAttached();
 
 		virtual bool IsInitialisedOk() = 0;
@@ -186,6 +189,9 @@ namespace nsyshid
 
 		// called from OnAttach() - attach devices that your backend can see here
 		virtual void AttachVisibleDevices() = 0;
+
+		// called from OnSettingsChanged() - attach or detach devices which were enabled or disabled
+		virtual void UpdateVisibleDevices() {}
 
 	  private:
 		std::list<std::shared_ptr<Device>> m_devices;

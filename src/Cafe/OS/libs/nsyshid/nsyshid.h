@@ -13,6 +13,9 @@ namespace nsyshid
 	void AttachBackend(const std::shared_ptr<Backend>& backend);
 	void DetachBackend(const std::shared_ptr<Backend>& backend);
 
+	// attaches or detaches emulated devices which can be toggled while a title is running
+	void UpdateEmulatedDevices();
+
 	// used by nsyskbd, these may call guest code or block, so only call them from PPC threads
 	sint32 HIDAddPassiveClient(HIDClient_t* hidClient, MPTR callbackFunc);
 	sint32 HIDDelPassiveClient(HIDClient_t* hidClient);

@@ -64,6 +64,65 @@ namespace WindowSystem
 		{
 			const std::lock_guard<std::mutex> lock(keycode_mutex);
 			std::for_each(m_keydown.begin(), m_keydown.end(), [](std::pair<const uint32, bool>& el) { el.second = false; });
+			for (uint32 usage = 0; usage < m_hidKeysHeld.size(); usage++)
+			{
+				if (m_hidKeysHeld.test(usage) && m_hidKeyEventsEnabled)
+					m_hidKeyEvents.push_back({(uint8)usage, false});
+			}
+			m_hidKeysHeld.reset();
+		}
+
+		struct HIDKeyEvent
+		{
+			uint8 usage;
+			bool pressed;
+		};
+
+		// physical keys of the game windows by USB HID usage id, used by the emulated USB keyboard
+		void set_hidkeystate(uint8 usage, bool pressed)
+		{
+			const std::lock_guard<std::mutex> lock(keycode_mutex);
+			if (m_hidKeysHeld.test(usage) == pressed)
+				return; // key repeat
+			m_hidKeysHeld.set(usage, pressed);
+			if (!m_hidKeyEventsEnabled)
+				return;
+			// a title may open the keyboard without reading it
+			if (m_hidKeyEvents.size() >= 256)
+				m_hidKeyEvents.pop_front();
+			m_hidKeyEvents.push_back({usage, pressed});
+		}
+
+		std::bitset<256> get_hidkeysheld()
+		{
+			const std::lock_guard<std::mutex> lock(keycode_mutex);
+			return m_hidKeysHeld;
+		}
+
+		// starts queueing key events, returns the keys which are already held
+		std::bitset<256> start_hidkeyevents()
+		{
+			const std::lock_guard<std::mutex> lock(keycode_mutex);
+			m_hidKeyEventsEnabled = true;
+			m_hidKeyEvents.clear();
+			return m_hidKeysHeld;
+		}
+
+		void stop_hidkeyevents()
+		{
+			const std::lock_guard<std::mutex> lock(keycode_mutex);
+			m_hidKeyEventsEnabled = false;
+			m_hidKeyEvents.clear();
+		}
+
+		std::optional<HIDKeyEvent> pop_hidkeyevent()
+		{
+			const std::lock_guard<std::mutex> lock(keycode_mutex);
+			if (m_hidKeyEvents.empty())
+				return std::nullopt;
+			HIDKeyEvent event = m_hidKeyEvents.front();
+			m_hidKeyEvents.pop_front();
+			return event;
 		}
 
 		template<typename fn>
@@ -83,6 +142,9 @@ namespace WindowSystem
 	  private:
 		std::mutex keycode_mutex;
 		std::unordered_map<uint32, bool> m_keydown;
+		std::bitset<256> m_hidKeysHeld;
+		std::deque<HIDKeyEvent> m_hidKeyEvents;
+		bool m_hidKeyEventsEnabled = false;
 	};
 
 	enum class ErrorCategory

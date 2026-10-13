@@ -1,6 +1,7 @@
 #include "wxgui/CemuApp.h"
 #include "wxCemuConfig.h"
 #include "wxgui/MainWindow.h"
+#include "wxgui/PadViewFrame.h"
 #include "wxgui/wxgui.h"
 #include "config/CemuConfig.h"
 #ifdef ENABLE_VULKAN
@@ -35,6 +36,7 @@
 #include "Cafe/TitleList/TitleList.h"
 #include "Cafe/TitleList/SaveList.h"
 #include "Cafe/CafeSystem.h"
+#include "Cafe/OS/libs/swkbd/swkbd.h"
 
 wxIMPLEMENT_APP_NO_MAIN(CemuApp);
 
@@ -461,17 +463,34 @@ void CemuApp::OnAssertFailure(const wxChar* file, int line, const wxChar* func, 
 	cemu_assert_debug(false);
 }
 
+// the emulated USB keyboard only sees keys typed into the game windows
+static bool IsGameWindowEvent(const wxEvent& event)
+{
+	auto* window = wxDynamicCast(event.GetEventObject(), wxWindow);
+	if (!window || !g_mainFrame)
+		return false;
+	const wxWindow* topLevelWindow = wxGetTopLevelParent(window);
+	return topLevelWindow == g_mainFrame || topLevelWindow == g_mainFrame->GetPadView();
+}
+
 int CemuApp::FilterEvent(wxEvent& event)
 {
 	if(event.GetEventType() == wxEVT_KEY_DOWN)
 	{
 		const auto& key_event = (wxKeyEvent&)event;
 		g_window_info.set_keystate(fix_raw_keycode(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags()), true);
+		// while the swkbd overlay is open it takes the keyboard input
+		uint8 usage = raw_keycode_to_hid_usage(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags());
+		if (usage != 0 && IsGameWindowEvent(event) && !swkbd_hasKeyboardInputHook())
+			g_window_info.set_hidkeystate(usage, true);
 	}
 	else if(event.GetEventType() == wxEVT_KEY_UP)
 	{
 		const auto& key_event = (wxKeyEvent&)event;
 		g_window_info.set_keystate(fix_raw_keycode(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags()), false);
+		uint8 usage = raw_keycode_to_hid_usage(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags());
+		if (usage != 0)
+			g_window_info.set_hidkeystate(usage, false);
 	}
 	else if(event.GetEventType() == wxEVT_ACTIVATE_APP)
 	{
