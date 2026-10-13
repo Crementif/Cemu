@@ -172,6 +172,13 @@ namespace nsyshid
 		virtual bool SetProtocol(uint8 ifIndex, uint8 protocol) = 0;
 
 		virtual bool SetReport(ReportMessage* message) = 0;
+
+		// the following requests are optional for HID devices, by default they are not supported
+		virtual bool GetIdle(uint8 ifIndex, uint8 reportId, uint8* duration);
+
+		virtual bool GetProtocol(uint8 ifIndex, uint8* protocol);
+
+		virtual bool GetReport(ReportMessage* message);
 	};
 
 	class Backend

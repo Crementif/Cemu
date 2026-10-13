@@ -305,6 +305,18 @@ namespace nsyshid
 		return 0;
 	}
 
+	// passive clients are used by system libraries like nsyskbd
+	// todo - on hardware a device claimed by a regular client is probably not handed to passive clients
+	sint32 HIDAddPassiveClient(HIDClient_t* hidClient, MPTR callbackFuncMPTR)
+	{
+		return HIDAddClient(hidClient, callbackFuncMPTR);
+	}
+
+	sint32 HIDDelPassiveClient(HIDClient_t* hidClient)
+	{
+		return HIDDelClient(hidClient);
+	}
+
 	void DoHIDTransferCallback(MPTR callbackFuncMPTR, MPTR callbackParamMPTR, uint32 hidHandle, uint32 errorCode,
 							   MPTR buffer, sint32 length)
 	{
@@ -368,6 +380,34 @@ namespace nsyshid
 		});
 	}
 
+	sint32 HIDGetIdle(uint32 hidHandle, uint8 ifIndex, uint8 reportId, uint8* duration, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
+	{
+		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
+		if (device == nullptr)
+		{
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDGetIdle(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
+		}
+		Device* dev = device.get();
+		return SubmitTransfer(dev->m_controlQueue, hidHandle, duration, callbackFuncMPTR, callbackParamMPTR, [=]() -> sint32 {
+			return dev->GetIdle(ifIndex, reportId, duration) ? 1 : -1;
+		});
+	}
+
+	sint32 HIDGetProtocol(uint32 hidHandle, uint8 ifIndex, uint8* protocol, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
+	{
+		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
+		if (device == nullptr)
+		{
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDGetProtocol(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
+		}
+		Device* dev = device.get();
+		return SubmitTransfer(dev->m_controlQueue, hidHandle, protocol, callbackFuncMPTR, callbackParamMPTR, [=]() -> sint32 {
+			return dev->GetProtocol(ifIndex, protocol) ? 1 : -1;
+		});
+	}
+
 	sint32 HIDSetProtocol(uint32 hidHandle, uint8 ifIndex, uint8 protocol, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
 	{
 		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
@@ -402,6 +442,23 @@ namespace nsyshid
 		return SubmitTransfer(dev->m_controlQueue, hidHandle, data, callbackFuncMPTR, callbackParamMPTR, [=]() -> sint32 {
 			ReportMessage message(reportType, reportId, data, dataLength);
 			if (!dev->SetReport(&message))
+				return -1;
+			return dataLength;
+		});
+	}
+
+	sint32 HIDGetReport(uint32 hidHandle, uint8 reportType, uint8 reportId, uint8* data, uint32 dataLength, MPTR callbackFuncMPTR, MPTR callbackParamMPTR)
+	{
+		std::shared_ptr<Device> device = GetDeviceByHandle(hidHandle, true);
+		if (device == nullptr)
+		{
+			cemuLog_log(LogType::NSYSHID, "nsyshid.HIDGetReport(): Unable to find device with hid handle {}", hidHandle);
+			return -1;
+		}
+		Device* dev = device.get();
+		return SubmitTransfer(dev->m_controlQueue, hidHandle, data, callbackFuncMPTR, callbackParamMPTR, [=]() -> sint32 {
+			ReportMessage message(reportType, reportId, data, dataLength);
+			if (!dev->GetReport(&message))
 				return -1;
 			return dataLength;
 		});
@@ -514,6 +571,21 @@ namespace nsyshid
 		*ukn1 = (uint32)-0x7FFF;
 
 		return 0;
+	}
+
+	bool Device::GetIdle(uint8 ifIndex, uint8 reportId, uint8* duration)
+	{
+		return false;
+	}
+
+	bool Device::GetProtocol(uint8 ifIndex, uint8* protocol)
+	{
+		return false;
+	}
+
+	bool Device::GetReport(ReportMessage* message)
+	{
+		return false;
 	}
 
 	void Backend::DetachAllDevices()
@@ -694,9 +766,14 @@ namespace nsyshid
 		{
 			cafeExportRegister("nsyshid", HIDAddClient, LogType::NSYSHID);
 			cafeExportRegister("nsyshid", HIDDelClient, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDAddPassiveClient, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDDelPassiveClient, LogType::NSYSHID);
 			cafeExportRegister("nsyshid", HIDGetDescriptor, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDGetIdle, LogType::NSYSHID);
 			cafeExportRegister("nsyshid", HIDSetIdle, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDGetProtocol, LogType::NSYSHID);
 			cafeExportRegister("nsyshid", HIDSetProtocol, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDGetReport, LogType::NSYSHID);
 			cafeExportRegister("nsyshid", HIDSetReport, LogType::NSYSHID);
 
 			cafeExportRegister("nsyshid", HIDRead, LogType::NSYSHID);

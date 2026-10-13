@@ -861,6 +861,88 @@ namespace nsyshid::backend::libusb
 		return true;
 	}
 
+	bool DeviceLibusb::GetIdle(uint8 ifIndex,
+							   uint8 reportId,
+							   uint8* duration)
+	{
+		auto handleLock = AquireHandleLock();
+		if (!handleLock->IsValid())
+		{
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetIdle(): device is not opened");
+			return false;
+		}
+
+		int ret = libusb_control_transfer(handleLock->GetHandle(),
+										  LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE | LIBUSB_ENDPOINT_IN,
+										  HID_CLASS_GET_IDLE, // Defined in HID Class Specific Requests (7.2)
+										  reportId,
+										  ifIndex,
+										  duration,
+										  1,
+										  0);
+
+		if (ret != 1)
+		{
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetIdle(): Control Transfer Failed: {}", libusb_error_name(ret));
+			return false;
+		}
+		return true;
+	}
+
+	bool DeviceLibusb::GetProtocol(uint8 ifIndex, uint8* protocol)
+	{
+		auto handleLock = AquireHandleLock();
+		if (!handleLock->IsValid())
+		{
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetProtocol(): device is not opened");
+			return false;
+		}
+
+		int ret = libusb_control_transfer(handleLock->GetHandle(),
+										  LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE | LIBUSB_ENDPOINT_IN,
+										  HID_CLASS_GET_PROTOCOL, // Defined in HID Class Specific Requests (7.2)
+										  0,
+										  ifIndex,
+										  protocol,
+										  1,
+										  0);
+
+		if (ret != 1)
+		{
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetProtocol(): Control Transfer Failed: {}", libusb_error_name(ret));
+			return false;
+		}
+		return true;
+	}
+
+	bool DeviceLibusb::GetReport(ReportMessage* message)
+	{
+		auto handleLock = AquireHandleLock();
+		if (!handleLock->IsValid())
+		{
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetReport(): device is not opened");
+			return false;
+		}
+
+		uint16 wValue = uint16(message->reportType) << 8 | uint16(message->reportId);
+
+		int ret = libusb_control_transfer(handleLock->GetHandle(),
+										  LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE | LIBUSB_ENDPOINT_IN,
+										  HID_CLASS_GET_REPORT, // Defined in HID Class Specific Requests (7.2)
+										  wValue,
+										  m_interfaceIndex,
+										  message->data,
+										  uint16(message->length & 0xFFFF),
+										  0);
+
+		if (ret != message->length)
+		{
+			cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetReport(): Control Transfer Failed at interface {} : {}", m_interfaceIndex, libusb_error_name(ret));
+			return false;
+		}
+		return true;
+	}
+
 	std::unique_ptr<DeviceLibusb::HandleLock> DeviceLibusb::AquireHandleLock()
 	{
 		return std::make_unique<HandleLock>(&m_libusbHandle,
