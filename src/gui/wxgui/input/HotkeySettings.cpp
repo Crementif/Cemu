@@ -162,6 +162,7 @@ HotkeySettings::HotkeySettings(wxWindow* parent)
 	CreateHotkeyRow(_tr("End emulation"), s_cfgHotkeys.endEmulation);
 #endif
 	CreateHotkeyRow(_tr("Exit application"), s_cfgHotkeys.exitApplication);
+	CreateHotkeyRow(_tr("Release mouse"), s_cfgHotkeys.releaseMouse);
 
 	m_controllerTimer = new wxTimer(this);
 	Bind(wxEVT_TIMER, &HotkeySettings::OnControllerTimer, this);
@@ -201,6 +202,9 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 			auto closeEvent = new wxCloseEvent{wxEVT_CLOSE_WINDOW, s_mainWindow->GetId()};
 			closeEvent->SetCanVeto(false);
 			wxQueueEvent(s_mainWindow, closeEvent);
+		 }},
+		{&s_cfgHotkeys.releaseMouse, [](void) {
+			 s_mainWindow->SetMouseCaptured(false);
 		 }},
 #ifdef CEMU_DEBUG_ASSERT
 		{&s_cfgHotkeys.endEmulation, [](void) {
