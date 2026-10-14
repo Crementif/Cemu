@@ -577,6 +577,17 @@ namespace nsyshid
 		});
 	}
 
+	// on hardware these only log a message
+	sint32 HIDSetup()
+	{
+		return 0;
+	}
+
+	sint32 HIDTeardown()
+	{
+		return 0;
+	}
+
 	sint32 HIDDecodeError(uint32 errorCode, uint32be* ukn0, uint32be* ukn1)
 	{
 		// todo
@@ -800,6 +811,9 @@ namespace nsyshid
 			cafeExportRegister("nsyshid", HIDWrite, LogType::NSYSHID);
 
 			cafeExportRegister("nsyshid", HIDDecodeError, LogType::NSYSHID);
+
+			cafeExportRegister("nsyshid", HIDSetup, LogType::NSYSHID);
+			cafeExportRegister("nsyshid", HIDTeardown, LogType::NSYSHID);
 		};
 		void rpl_entry(uint32 moduleHandle, coreinit::RplEntryReason reason) override
 		{
