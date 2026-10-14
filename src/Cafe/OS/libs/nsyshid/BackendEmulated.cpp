@@ -3,6 +3,7 @@
 #include "Dimensions.h"
 #include "Infinity.h"
 #include "Keyboard.h"
+#include "Mouse.h"
 #include "Skylander.h"
 #include "config/CemuConfig.h"
 #include "SkylanderXbox360.h"
@@ -56,7 +57,7 @@ namespace nsyshid::backend::emulated
 		UpdateVisibleDevices();
 	}
 
-	// the keyboard can be connected and disconnected while a title is running
+	// the keyboard and mouse can be connected and disconnected while a title is running
 	void BackendEmulated::UpdateVisibleDevices()
 	{
 		auto keyboard = FindDevice([](const std::shared_ptr<Device>& device) {
@@ -72,6 +73,20 @@ namespace nsyshid::backend::emulated
 		{
 			cemuLog_log(LogType::NSYSHID, "Detaching emulated keyboard");
 			DetachDevice(keyboard);
+		}
+		auto mouse = FindDevice([](const std::shared_ptr<Device>& device) {
+			return dynamic_cast<MouseDevice*>(device.get()) != nullptr;
+		});
+		const bool emulateMouse = GetConfig().emulated_usb_devices.emulate_mouse;
+		if (emulateMouse && !mouse)
+		{
+			cemuLog_log(LogType::NSYSHID, "Attaching emulated mouse");
+			AttachDevice(std::make_shared<MouseDevice>());
+		}
+		else if (!emulateMouse && mouse)
+		{
+			cemuLog_log(LogType::NSYSHID, "Detaching emulated mouse");
+			DetachDevice(mouse);
 		}
 	}
 } // namespace nsyshid::backend::emulated
