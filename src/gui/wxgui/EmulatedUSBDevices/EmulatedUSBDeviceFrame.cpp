@@ -142,6 +142,19 @@ wxPanel* EmulatedUSBDeviceFrame::AddKeyboardMousePage(wxNotebook* notebook)
 	keyboardSizer->Add(new wxStaticText(keyboardBox, wxID_ANY, _("Keys typed into the game window are sent to the emulated keyboard.\nKeys bound to an emulated controller are sent as well.")), 0, wxEXPAND | wxALL, 2);
 	panelSizer->Add(keyboardSizer, 0, wxEXPAND | wxALL, 2);
 
+	auto* mouseBox = new wxStaticBox(panel, wxID_ANY, _("USB Mouse"));
+	auto* mouseSizer = new wxStaticBoxSizer(mouseBox, wxVERTICAL);
+	m_emulateMouse = new wxCheckBox(mouseBox, wxID_ANY, _("Emulate USB Mouse"));
+	m_emulateMouse->SetValue(GetConfig().emulated_usb_devices.emulate_mouse);
+	m_emulateMouse->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+		GetConfig().emulated_usb_devices.emulate_mouse = m_emulateMouse->IsChecked();
+		GetConfigHandle().Save();
+		nsyshid::UpdateEmulatedDevices();
+	});
+	mouseSizer->Add(m_emulateMouse, 0, wxEXPAND | wxALL, 2);
+	mouseSizer->Add(new wxStaticText(mouseBox, wxID_ANY, _("Click into the game window to capture the mouse while a game uses it.\nThe mouse is released with the \"Release mouse\" hotkey or when the window loses focus.")), 0, wxEXPAND | wxALL, 2);
+	panelSizer->Add(mouseSizer, 0, wxEXPAND | wxALL, 2);
+
 	panel->SetSizerAndFit(panelSizer);
 
 	return panel;
