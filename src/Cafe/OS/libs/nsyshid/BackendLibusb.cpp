@@ -696,16 +696,19 @@ namespace nsyshid::backend::libusb
 		else
 		{
 			uint16 wValue = uint16(descType) << 8 | uint16(descIndex);
+			// the HID, report and physical descriptors belong to the interface (HID 1.11 section 7.1.1)
+			const bool isHidDescriptor = descType >= 0x21 && descType <= 0x23;
 			// HID Get_Descriptor requests are handled via libusb_control_transfer
 			int ret = libusb_control_transfer(handleLock->GetHandle(),
-											  LIBUSB_REQUEST_TYPE_STANDARD | LIBUSB_ENDPOINT_IN,
+											  LIBUSB_REQUEST_TYPE_STANDARD | (isHidDescriptor ? LIBUSB_RECIPIENT_INTERFACE : LIBUSB_RECIPIENT_DEVICE) | LIBUSB_ENDPOINT_IN,
 											  LIBUSB_REQUEST_GET_DESCRIPTOR,
 											  wValue,
-											  lang,
+											  isHidDescriptor ? uint16(m_interfaceIndex) : lang,
 											  output,
 											  outputMaxLength,
 											  0);
-			if (ret != outputMaxLength)
+			// descriptors are often shorter than the buffer
+			if (ret < 0)
 			{
 				cemuLog_logDebug(LogType::NSYSHID, "nsyshid::DeviceLibusb::GetDescriptor(): Control Transfer Failed: {}", libusb_error_name(ret));
 				return false;
