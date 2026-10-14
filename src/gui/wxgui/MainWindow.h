@@ -22,6 +22,7 @@ class DiscordPresence;
 class TitleManager;
 class GraphicPacksWindow2;
 class EmulatedUSBDeviceFrame;
+class wxWlPointerLock;
 class wxLaunchGameEvent;
 
 wxDECLARE_EVENT(wxEVT_LAUNCH_GAME, wxLaunchGameEvent);
@@ -119,6 +120,7 @@ public:
 	void OnMouseMove(wxMouseEvent& event);
 	void OnMouseLeft(wxMouseEvent& event);
 	void OnMouseRight(wxMouseEvent& event);
+	void OnMouseButton(wxMouseEvent& event);
 	void OnGameListBeginUpdate(wxCommandEvent& event);
 	void OnGameListEndUpdate(wxCommandEvent& event);
 	void OnAccountListRefresh(wxCommandEvent& event);
@@ -141,6 +143,8 @@ public:
 
 	static void ShowCursor(bool state);
 
+	void SetMouseCaptured(bool state);
+
 	uintptr_t GetRenderCanvasHWND();
 
 	static void RequestGameListRefresh();
@@ -155,6 +159,9 @@ private:
 	bool InstallUpdate(const fs::path& metaFilePath);
 
 	void OnTimer(wxTimerEvent& event);
+
+	bool HandleCapturedMouseButton(wxMouseEvent& event);
+	void ClipCapturedMouse();
 
 	// CafeSystem implementation
 	void CafeRecreateCanvas() override;
@@ -175,6 +182,10 @@ private:
 	wxTimer* m_timer;
 	wxPoint m_mouse_position{};
 	std::chrono::steady_clock::time_point m_last_mouse_move_time;
+	bool m_mouse_captured = false;
+	wxPoint m_mouse_capture_center{};
+	sint32 m_mouse_wheel_remainder = 0;
+	wxWlPointerLock* m_wayland_pointer_lock = nullptr;
 	wxSize m_restored_size;
 	wxPoint m_restored_position;
 

@@ -115,6 +115,57 @@ namespace WindowSystem
 			return event;
 		}
 
+		struct HIDMouseState
+		{
+			sint32 deltaX;
+			sint32 deltaY;
+			sint32 wheel;
+			uint8 buttons;
+		};
+
+		// set by the emulated USB mouse while a title has it open, the game window only captures the mouse then
+		std::atomic_bool hid_mouse_open = false;
+
+		void add_hidmousemotion(sint32 deltaX, sint32 deltaY, sint32 wheel)
+		{
+			const std::lock_guard<std::mutex> lock(m_hidMouseMutex);
+			m_hidMouse.deltaX += deltaX;
+			m_hidMouse.deltaY += deltaY;
+			m_hidMouse.wheel += wheel;
+		}
+
+		// bit 0 = left, bit 1 = right, bit 2 = middle, bit 3 = back, bit 4 = forward
+		void set_hidmousebutton(uint8 button, bool pressed)
+		{
+			const std::lock_guard<std::mutex> lock(m_hidMouseMutex);
+			if (pressed)
+			{
+				m_hidMouse.buttons |= (1 << button);
+				m_hidMouseButtonsClicked |= (1 << button);
+			}
+			else
+				m_hidMouse.buttons &= ~(1 << button);
+		}
+
+		void set_hidmousebuttonsup()
+		{
+			const std::lock_guard<std::mutex> lock(m_hidMouseMutex);
+			m_hidMouse.buttons = 0;
+		}
+
+		// returns the motion since the last call, a button which was clicked in between is reported as held once
+		HIDMouseState pop_hidmousestate()
+		{
+			const std::lock_guard<std::mutex> lock(m_hidMouseMutex);
+			HIDMouseState state = m_hidMouse;
+			state.buttons |= m_hidMouseButtonsClicked;
+			m_hidMouseButtonsClicked = 0;
+			m_hidMouse.deltaX = 0;
+			m_hidMouse.deltaY = 0;
+			m_hidMouse.wheel = 0;
+			return state;
+		}
+
 		template<typename fn>
 		void iter_keystates(fn f)
 		{
@@ -135,6 +186,9 @@ namespace WindowSystem
 		std::bitset<256> m_hidKeysHeld;
 		std::deque<HIDKeyEvent> m_hidKeyEvents;
 		bool m_hidKeyEventsEnabled = false;
+		std::mutex m_hidMouseMutex;
+		HIDMouseState m_hidMouse{};
+		uint8 m_hidMouseButtonsClicked = 0;
 	};
 
 	enum class ErrorCategory

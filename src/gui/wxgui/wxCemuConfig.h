@@ -127,6 +127,7 @@ struct wxCemuConfig
 		sHotkeyCfg takeScreenshot;
 		sHotkeyCfg toggleFastForward;
 		sHotkeyCfg exitApplication;
+		sHotkeyCfg releaseMouse;
 #ifdef CEMU_DEBUG_ASSERT
 		sHotkeyCfg endEmulation;
 #endif

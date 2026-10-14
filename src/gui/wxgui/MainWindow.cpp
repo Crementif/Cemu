@@ -373,6 +373,11 @@ MainWindow::MainWindow()
 
 	Bind(wxEVT_OPEN_GRAPHIC_PACK, &MainWindow::OnGraphicWindowOpen, this);
 	Bind(wxEVT_LAUNCH_GAME, &MainWindow::OnLaunchFromFile, this);
+	Bind(wxEVT_ACTIVATE, [this](wxActivateEvent& event) {
+		if (!event.GetActive())
+			SetMouseCaptured(false);
+		event.Skip();
+	});
 
 	if (LaunchSettings::GDBStubEnabled())
 	{
@@ -838,6 +843,17 @@ WXLRESULT MainWindow::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lPara
 			InputManager::instance().on_device_changed();
 		}
 	}
+	else if (nMsg == WM_INPUT && m_mouse_captured)
+	{
+		// raw input motion is not affected by the pointer acceleration of the system
+		RAWINPUT input;
+		UINT size = sizeof(input);
+		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) != (UINT)-1 &&
+			input.header.dwType == RIM_TYPEMOUSE && (input.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0)
+		{
+			g_window_info.add_hidmousemotion(input.data.mouse.lLastX, input.data.mouse.lLastY, 0);
+		}
+	}
 
 	return wxFrame::MSWWindowProc(nMsg, wParam, lParam);
 }
@@ -1270,6 +1286,110 @@ void MainWindow::ShowCursor(bool state)
 	#endif
 }
 
+// while a title uses the emulated USB mouse the game window can capture the mouse and forward its relative motion
+void MainWindow::SetMouseCaptured(bool state)
+{
+	if (m_mouse_captured == state)
+		return;
+	if (state && (!m_render_canvas || !g_window_info.hid_mouse_open))
+		return;
+	m_mouse_captured = state;
+	#if BOOST_OS_WINDOWS
+	RAWINPUTDEVICE device{};
+	device.usUsagePage = 0x01; // generic desktop
+	device.usUsage = 0x02; // mouse
+	device.dwFlags = state ? 0 : RIDEV_REMOVE;
+	device.hwndTarget = state ? GetHWND() : nullptr;
+	if (!RegisterRawInputDevices(&device, 1, sizeof(device)))
+		cemuLog_log(LogType::Force, "Failed to register raw mouse input: {}", GetLastError());
+	#endif
+	if (state)
+	{
+		#if ( BOOST_OS_LINUX || BOOST_OS_BSD ) && HAS_WAYLAND
+		if (wxWlIsWaylandWindow(this))
+		{
+			m_wayland_pointer_lock = new wxWlPointerLock(m_render_canvas, [](sint32 deltaX, sint32 deltaY) { g_window_info.add_hidmousemotion(deltaX, deltaY, 0); });
+			if (!m_wayland_pointer_lock->IsLocked())
+			{
+				cemuLog_log(LogType::Force, "The Wayland compositor doesn't support pointer locking, the captured mouse can leave the window");
+				delete m_wayland_pointer_lock;
+				m_wayland_pointer_lock = nullptr;
+			}
+		}
+		#endif
+		ClipCapturedMouse();
+		ShowCursor(false);
+	}
+	else
+	{
+		#if ( BOOST_OS_LINUX || BOOST_OS_BSD ) && HAS_WAYLAND
+		delete m_wayland_pointer_lock;
+		m_wayland_pointer_lock = nullptr;
+		#endif
+		g_window_info.set_hidmousebuttonsup();
+		m_mouse_wheel_remainder = 0;
+		#if BOOST_OS_WINDOWS
+		ClipCursor(nullptr);
+		#endif
+		m_last_mouse_move_time = std::chrono::steady_clock::now();
+		ShowCursor(true);
+	}
+}
+
+// keeps the cursor in the centre of the game window so that clicks don't leave it
+void MainWindow::ClipCapturedMouse()
+{
+	if (!m_render_canvas)
+		return;
+	const wxSize size = m_render_canvas->GetClientSize();
+	m_mouse_capture_center = wxPoint(size.x / 2, size.y / 2);
+	#if BOOST_OS_WINDOWS
+	const wxPoint screenPos = m_render_canvas->ClientToScreen(m_mouse_capture_center);
+	const RECT rect{screenPos.x, screenPos.y, screenPos.x + 1, screenPos.y + 1};
+	ClipCursor(&rect);
+	#else
+	// a locked Wayland pointer stays where it is
+	if (!m_wayland_pointer_lock)
+		m_render_canvas->WarpPointer(m_mouse_capture_center.x, m_mouse_capture_center.y);
+	#endif
+}
+
+// returns true if the button event belongs to the captured mouse
+bool MainWindow::HandleCapturedMouseButton(wxMouseEvent& event)
+{
+	if (!m_mouse_captured)
+	{
+		// clicking into the game window captures the mouse
+		if (event.LeftDown() && g_window_info.hid_mouse_open && g_window_info.app_active)
+			SetMouseCaptured(true);
+		return m_mouse_captured;
+	}
+	uint8 button;
+	switch (event.GetButton())
+	{
+	case wxMOUSE_BTN_LEFT:
+		button = 0;
+		break;
+	case wxMOUSE_BTN_RIGHT:
+		button = 1;
+		break;
+	case wxMOUSE_BTN_MIDDLE:
+		button = 2;
+		break;
+	case wxMOUSE_BTN_AUX1:
+		button = 3;
+		break;
+	case wxMOUSE_BTN_AUX2:
+		button = 4;
+		break;
+	default:
+		return true;
+	}
+	// a fast second click arrives as a double click instead of a button down event
+	g_window_info.set_hidmousebutton(button, event.ButtonDown() || event.ButtonDClick());
+	return true;
+}
+
 uintptr_t MainWindow::GetRenderCanvasHWND()
 {
 	// deprecated. We can use the global cross-platform window info structs now
@@ -1389,6 +1509,21 @@ void MainWindow::OnMouseMove(wxMouseEvent& event)
 {
 	event.Skip();
 
+	if (m_mouse_captured)
+	{
+		#if !BOOST_OS_WINDOWS
+		if (m_wayland_pointer_lock)
+			return;
+		const wxPoint delta = event.GetPosition() - m_mouse_capture_center;
+		if (delta.x != 0 || delta.y != 0)
+		{
+			g_window_info.add_hidmousemotion(delta.x, delta.y, 0);
+			m_render_canvas->WarpPointer(m_mouse_capture_center.x, m_mouse_capture_center.y);
+		}
+		#endif
+		return;
+	}
+
 	m_last_mouse_move_time = std::chrono::steady_clock::now();
 	m_mouse_position = wxGetMousePosition();
 	ShowCursor(true);
@@ -1410,6 +1545,11 @@ void MainWindow::OnMouseMove(wxMouseEvent& event)
 
 void MainWindow::OnMouseLeft(wxMouseEvent& event)
 {
+	if (HandleCapturedMouseButton(event))
+	{
+		event.Skip();
+		return;
+	}
 	auto& instance = InputManager::instance();
 
 	std::scoped_lock lock(instance.m_main_mouse.m_mutex);
@@ -1424,6 +1564,11 @@ void MainWindow::OnMouseLeft(wxMouseEvent& event)
 
 void MainWindow::OnMouseRight(wxMouseEvent& event)
 {
+	if (HandleCapturedMouseButton(event))
+	{
+		event.Skip();
+		return;
+	}
 	auto& instance = InputManager::instance();
 
 	std::scoped_lock lock(instance.m_main_mouse.m_mutex);
@@ -1433,6 +1578,12 @@ void MainWindow::OnMouseRight(wxMouseEvent& event)
 	if(event.ButtonDown(wxMOUSE_BTN_RIGHT))
 		instance.m_main_mouse.right_down_toggle = true;
 
+	event.Skip();
+}
+
+void MainWindow::OnMouseButton(wxMouseEvent& event)
+{
+	HandleCapturedMouseButton(event);
 	event.Skip();
 }
 
@@ -1627,6 +1778,9 @@ void MainWindow::CreateCanvas()
 	m_render_canvas->Bind(wxEVT_LEFT_UP, &MainWindow::OnMouseLeft, this);
 	m_render_canvas->Bind(wxEVT_RIGHT_DOWN, &MainWindow::OnMouseRight, this);
 	m_render_canvas->Bind(wxEVT_RIGHT_UP, &MainWindow::OnMouseRight, this);
+	for (const auto eventType : {wxEVT_LEFT_DCLICK, wxEVT_RIGHT_DCLICK, wxEVT_MIDDLE_DOWN, wxEVT_MIDDLE_UP, wxEVT_MIDDLE_DCLICK,
+								 wxEVT_AUX1_DOWN, wxEVT_AUX1_UP, wxEVT_AUX1_DCLICK, wxEVT_AUX2_DOWN, wxEVT_AUX2_UP, wxEVT_AUX2_DCLICK})
+		m_render_canvas->Bind(eventType, &MainWindow::OnMouseButton, this);
 
 	m_render_canvas->Bind(wxEVT_GESTURE_PAN, &MainWindow::OnGesturePan, this);
 
@@ -1647,6 +1801,7 @@ void MainWindow::CreateCanvas()
 
 void MainWindow::DestroyCanvas()
 {
+	SetMouseCaptured(false);
 	if (m_padView)
 	{
 		m_padView->DestroyCanvas();
@@ -1674,6 +1829,9 @@ void MainWindow::OnSizeEvent(wxSizeEvent& event)
 	g_window_info.phys_width = ToPhys(client_size.GetWidth());
 	g_window_info.phys_height = ToPhys(client_size.GetHeight());
 	g_window_info.dpi_scale = GetDPIScaleFactor();
+
+	if (m_mouse_captured)
+		CallAfter([this]() { if (m_mouse_captured) ClipCapturedMouse(); });
 
 	if (m_debugger_window && m_debugger_window->IsShown())
 		m_debugger_window->OnParentMove(GetPosition(), event.GetSize());
@@ -1706,6 +1864,9 @@ void MainWindow::OnMove(wxMoveEvent& event)
 	#ifdef ENABLE_VULKAN
 	VsyncDriver_notifyWindowPosChanged();
 	#endif
+
+	if (m_mouse_captured)
+		ClipCapturedMouse();
 }
 
 void MainWindow::OnDebuggerClose(wxCloseEvent& event)
@@ -1743,6 +1904,20 @@ void MainWindow::OnMemorySearcherClose(wxCloseEvent& event)
 
 void MainWindow::OnMouseWheel(wxMouseEvent& event)
 {
+	if (m_mouse_captured)
+	{
+		if (event.GetWheelAxis() == wxMOUSE_WHEEL_VERTICAL && event.GetWheelDelta() > 0)
+		{
+			// high resolution wheels send fractions of a notch
+			m_mouse_wheel_remainder += event.GetWheelRotation();
+			const sint32 notches = m_mouse_wheel_remainder / event.GetWheelDelta();
+			m_mouse_wheel_remainder -= notches * event.GetWheelDelta();
+			if (notches != 0)
+				g_window_info.add_hidmousemotion(0, 0, notches);
+		}
+		event.Skip();
+		return;
+	}
 	const float delta = event.GetWheelRotation(); // in 120 steps -> max reached ~480 (?)
 	auto& instance = InputManager::instance();
 	instance.m_mouse_wheel = (delta / 120.0f);
@@ -1867,6 +2042,16 @@ void MainWindow::OnTimer(wxTimerEvent& event)
 		}
 
 		m_update_available = {};
+	}
+
+	if (m_mouse_captured)
+	{
+		// the title closed the mouse
+		if (!g_window_info.hid_mouse_open)
+			SetMouseCaptured(false);
+		else
+			ClipCapturedMouse(); // the system resets the clipping rectangle in some cases
+		return;
 	}
 
 	if (!IsFullScreen() || m_menu_visible)
