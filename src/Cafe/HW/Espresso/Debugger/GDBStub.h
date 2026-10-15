@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Common/precompiled.h"
-#include "Common/socket.h"
+#include "util/net/NetSocket.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Thread.h"
 
 #include <numeric>
@@ -58,7 +58,7 @@ public:
 					m_args.emplace_back(std::move(matchStr));
 			}
 			// send acknowledgement ahead of response
-			send(m_server->m_client_socket, RESPONSE_ACK.data(), (int)RESPONSE_ACK.size(), 0);
+			m_server->m_client_socket.Send(RESPONSE_ACK.data(), RESPONSE_ACK.size());
 		};
 		~CommandContext()
 		{
@@ -66,7 +66,7 @@ public:
 			// cemuLog_logDebug(LogType::Force, "[GDBStub] Responded: +{}", m_response);
 			auto response_data = EscapeMessage(m_response);
 			auto response_full = fmt::format("${}#{:02x}", response_data, CalculateChecksum(response_data));
-			send(m_server->m_client_socket, response_full.c_str(), (int)response_full.size(), 0);
+			m_server->m_client_socket.Send(response_full.data(), response_full.size());
 		}
 		CommandContext(const CommandContext&) = delete;
 
@@ -226,10 +226,8 @@ private:
 	std::unique_ptr<CommandContext> m_resumed_context;
 
 	std::atomic_bool m_client_connected;
-	SOCKET m_server_socket = INVALID_SOCKET;
-	sockaddr_in m_server_addr{};
-	SOCKET m_client_socket = INVALID_SOCKET;
-	sockaddr_in m_client_addr{};
+	NetSocket m_server_socket;
+	mutable NetSocket m_client_socket;
 };
 
 static constexpr std::string_view GDBTargetXML = R"(<?xml version="1.0"?>

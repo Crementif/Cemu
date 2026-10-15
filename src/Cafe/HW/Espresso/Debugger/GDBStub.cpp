@@ -10,11 +10,6 @@
 #include "Cafe/OS/libs/coreinit/coreinit_Thread.h"
 #include "Cafe/HW/Espresso/Interpreter/PPCInterpreterInternal.h"
 #include "Cafe/HW/Espresso/EspressoISA.h"
-#include "Common/socket.h"
-
-#if BOOST_OS_UNIX
-#include <netinet/tcp.h>
-#endif
 
 #define GET_THREAD_ID(threadPtr) memory_getVirtualOffsetFromPointer(threadPtr)
 #define GET_THREAD_BY_ID(threadId) (OSThread_t*)memory_getPointerFromPhysicalOffset(threadId)
@@ -225,74 +220,23 @@ std::unique_ptr<GDBServer> g_gdbstub;
 GDBServer::GDBServer(uint16 port)
 	: m_port(port)
 {
-#if BOOST_OS_WINDOWS
-	WSADATA wsa;
-	WSAStartup(MAKEWORD(2, 2), &wsa);
-#endif
 }
 
 GDBServer::~GDBServer()
 {
-	if (m_client_socket != INVALID_SOCKET)
-	{
-		// close socket from other thread to forcefully stop accept() call
-		closesocket(m_client_socket);
-		m_client_socket = INVALID_SOCKET;
-	}
-
-	if (m_server_socket != INVALID_SOCKET)
-	{
-		closesocket(m_server_socket);
-	}
-#if BOOST_OS_WINDOWS
-	WSACleanup();
-#endif
-
-	m_stopRequested = false;
-	m_thread.join();
+	m_stopRequested = true;
+	if (m_thread.joinable())
+		m_thread.join();
 }
 
 bool GDBServer::Initialize()
 {
 	cemuLog_createLogFile(false);
 
-	if (m_server_socket = socket(PF_INET, SOCK_STREAM, 0); m_server_socket == SOCKET_ERROR)
+	auto socket = NetSocket::Open(NetSocket::AddressFamily::IPv4, NetSocket::Type::Tcp);
+	if (!socket || !socket->Bind(NetSocket::Address::Loopback(NetSocket::AddressFamily::IPv4, m_port)) || !socket->Listen(s_maxGDBClients))
 		return false;
-
-	int reuseEnabled = TRUE;
-	if (setsockopt(m_server_socket, SOL_SOCKET, SO_REUSEADDR, (char*)&reuseEnabled, sizeof(reuseEnabled)) == SOCKET_ERROR)
-	{
-		closesocket(m_server_socket);
-		m_server_socket = INVALID_SOCKET;
-		return false;
-	}
-
-	int nodelayEnabled = TRUE;
-	if (setsockopt(m_server_socket, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelayEnabled, sizeof(nodelayEnabled)) == SOCKET_ERROR)
-	{
-		closesocket(m_server_socket);
-		m_server_socket = INVALID_SOCKET;
-		return false;
-	}
-
-	memset(&m_server_addr, 0, sizeof(m_server_addr));
-	m_server_addr.sin_family = AF_INET;
-	m_server_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	m_server_addr.sin_port = htons(m_port);
-
-	if (bind(m_server_socket, (sockaddr*)&m_server_addr, sizeof(m_server_addr)) == SOCKET_ERROR)
-	{
-		closesocket(m_server_socket);
-		m_server_socket = INVALID_SOCKET;
-		return false;
-	}
-
-	if (listen(m_server_socket, s_maxGDBClients) == SOCKET_ERROR)
-	{
-		closesocket(m_server_socket);
-		m_server_socket = INVALID_SOCKET;
-		return false;
-	}
+	m_server_socket = std::move(*socket);
 
 	m_thread = std::thread(std::bind(&GDBServer::ThreadFunc, this));
 
@@ -308,25 +252,39 @@ void GDBServer::ThreadFunc()
 		if (!m_client_connected)
 		{
 			cemuLog_logDebug(LogType::Force, "[GDBStub] Waiting for client to connect on port {}...", m_port);
-			socklen_t client_addr_size = sizeof(m_client_addr);
-			m_client_socket = accept(m_server_socket, (struct sockaddr*)&m_client_addr, &client_addr_size);
-			m_client_connected = m_client_socket != SOCKET_ERROR;
+			NetSocket client;
+			const sint32 result = m_server_socket.Accept(client, std::chrono::milliseconds(100));
+			if (result == NetSocket::kErrorTimeout || result == NetSocket::kErrorConnectionReset)
+				continue;
+			if (result < 0)
+				break;
+			client.SetNoDelay(true);
+			m_client_socket = std::move(client);
+			m_client_connected = true;
 		}
 		else
 		{
-			auto receiveMessage = [&](char* buffer, const int32_t length) -> bool {
-				if (recv(m_client_socket, buffer, length, 0) != SOCKET_ERROR)
-					return false;
-				return true;
-			};
-
+			bool disconnected = false;
 			auto readChar = [&]() -> char {
 				char ret = 0;
-				recv(m_client_socket, &ret, 1, 0);
+				while (!disconnected)
+				{
+					const sint32 result = m_client_socket.Receive(&ret, 1, std::chrono::milliseconds(100));
+					if (result == 1)
+						break;
+					if (result != NetSocket::kErrorTimeout || m_stopRequested)
+						disconnected = true;
+				}
 				return ret;
 			};
 
 			char packetPrefix = readChar();
+			if (disconnected)
+			{
+				cemuLog_logDebug(LogType::Force, "[GDBStub] Client disconnected");
+				m_client_connected = false;
+				continue;
+			}
 
 			switch (packetPrefix)
 			{
@@ -347,7 +305,7 @@ void GDBServer::ThreadFunc()
 				else
 				{
 					auto response_full = fmt::format("+${}#{:02x}", thread_status, CommandContext::CalculateChecksum(thread_status));
-					send(m_client_socket, response_full.c_str(), (int)response_full.size(), 0);
+					m_client_socket.Send(response_full.data(), response_full.size());
 				}
 				break;
 			}
@@ -358,7 +316,7 @@ void GDBServer::ThreadFunc()
 				for (uint32_t i = 1;; i++)
 				{
 					char c = readChar();
-					if (c == '#')
+					if (c == '#' || disconnected)
 						break;
 					checkedSum += static_cast<uint8>(c);
 					message.push_back(c);
@@ -367,7 +325,10 @@ void GDBServer::ThreadFunc()
 						cemuLog_logDebug(LogType::Force, "[GDBStub] Received too big of a buffer: {}", message);
 				}
 				char checkSumStr[2];
-				receiveMessage(checkSumStr, 2);
+				checkSumStr[0] = readChar();
+				checkSumStr[1] = readChar();
+				if (disconnected)
+					break;
 				uint32_t checkSum = std::stoi(std::string(checkSumStr, sizeof(checkSumStr)), nullptr, 16);
 				assert((checkedSum & 0xFF) == checkSum);
 
@@ -381,8 +342,6 @@ void GDBServer::ThreadFunc()
 		}
 	}
 
-	if (m_client_socket != INVALID_SOCKET)
-		closesocket(m_client_socket);
 }
 
 void GDBServer::HandleCommand(const std::string& command_str)
