@@ -12,8 +12,6 @@
 #define HAS_DSU 1
 #endif
 
-// #define DEBUG_DSU_CLIENT
-
 struct DSUProviderSettings : public ControllerProviderSettings
 {
 	std::string ip;

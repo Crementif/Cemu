@@ -258,11 +258,6 @@ void DSUControllerProvider::reader_thread()
 			break;
 		if (ec)
 		{
-
-#ifdef DEBUG_DSU_CLIENT
-				printf(" DSUControllerProvider::ReaderThread: exception %s\n", ec.what());
-#endif
-
 			// there's probably no server listening on the given address:port
 			if (first_read) // workaroud: first read always fails?
 				first_read = false;
@@ -274,10 +269,6 @@ void DSUControllerProvider::reader_thread()
 			continue;
 		}
 
-#ifdef DEBUG_DSU_CLIENT
-			printf(" DSUControllerProvider::ReaderThread: received message with len: 0x%llx\n", len);
-#endif
-
 		if (len < sizeof(ServerMessage)) // cant be a valid message
 			continue;
 
@@ -285,9 +276,6 @@ void DSUControllerProvider::reader_thread()
 		//		}
 		//		catch (const std::exception&)
 		//		{
-		//#ifdef DEBUG_DSU_CLIENT
-		//			printf(" DSUControllerProvider::ReaderThread: exception %s\n", ex.what());
-		//#endif
 		//
 		//			// there's probably no server listening on the given address:port
 		//			if (first_read) // workaroud: first read always fails?
@@ -307,16 +295,7 @@ void DSUControllerProvider::reader_thread()
 			{
 				const auto rsp = (VersionResponse*)msg;
 				if (!rsp->IsValid())
-				{
-#ifdef DEBUG_DSU_CLIENT
-				printf(" DSUControllerProvider::ReaderThread: VersionResponse is invalid!\n");
-#endif
 					continue;
-				}
-
-#ifdef DEBUG_DSU_CLIENT
-			printf(" DSUControllerProvider::ReaderThread: server version is: 0x%x\n", rsp->GetVersion());
-#endif
 
 				m_server_version = rsp->GetVersion();
 				// wdc
@@ -326,18 +305,10 @@ void DSUControllerProvider::reader_thread()
 			{
 				const auto info = (PortInfo*)msg;
 				if (!info->IsValid())
-				{
-#ifdef DEBUG_DSU_CLIENT
-				printf(" DSUControllerProvider::ReaderThread: PortInfo is invalid!\n");
-#endif
 					continue;
-				}
 
 				index = info->GetIndex();
 				cemu_assert(index < kMaxClients);
-#ifdef DEBUG_DSU_CLIENT
-			printf(" DSUControllerProvider::ReaderThread: received PortInfo for index %d\n", index);
-#endif
 
 				auto& mutex = m_mutex[index];
 				std::scoped_lock lock(mutex);
@@ -350,18 +321,10 @@ void DSUControllerProvider::reader_thread()
 			{
 				const auto rsp = (DataResponse*)msg;
 				if (!rsp->IsValid())
-				{
-#ifdef DEBUG_DSU_CLIENT
-				printf(" DSUControllerProvider::ReaderThread: DataResponse is invalid!\n");
-#endif
 					continue;
-				}
 
 				index = rsp->GetIndex();
 				cemu_assert(index < kMaxClients);
-#ifdef DEBUG_DSU_CLIENT
-			printf(" DSUControllerProvider::ReaderThread: received DataResponse for index %d\n", index);
-#endif
 
 				auto& mutex = m_mutex[index];
 				std::scoped_lock lock(mutex);
@@ -388,20 +351,12 @@ void DSUControllerProvider::writer_thread()
 		if (!m_running.load(std::memory_order_relaxed))
 			return;
 		cemu_assert_debug(msg.get());
-#ifdef DEBUG_DSU_CLIENT
-		printf(" DSUControllerProvider::WriterThread: sending message: 0x%x (len: 0x%x)\n", (int)msg->GetMessageType(), msg->GetSize());
-#endif
 		try
 		{
 			m_socket.send_to(boost::asio::buffer(msg.get(), msg->GetSize()), m_receiver_endpoint);
 		}
-		catch (const std::exception& ec)
-		{
-#ifdef DEBUG_DSU_CLIENT
-			printf(" DSUControllerProvider::WriterThread: exception %s\n", ec.what());
-#endif
+		catch (const std::exception&)
 			std::this_thread::sleep_for(std::chrono::milliseconds(250));
-		}
 	}
 }
 
