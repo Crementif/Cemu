@@ -23,7 +23,6 @@
     "boost-functional",
     "boost-optional",
     "boost-signals2",
-    "boost-asio",
     "boost-ptr-container",
     "boost-property-tree",
     "boost-static-string",
