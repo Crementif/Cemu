@@ -1,6 +1,6 @@
 #pragma once
 #include "nexTypes.h"
-#include "Common/socket.h"
+#include "util/net/NetSocket.h"
 
 #define RC4_N 256
 
@@ -170,8 +170,7 @@ private:
 
 private:
 	uint16 m_srcPort;
-	uint32 m_dstIp;
-	uint16 m_dstPort;
+	NetSocket::Address m_dstAddress;
 	uint8 m_srcVPort;
 	uint8 m_dstVPort;
 	prudpStreamSettings m_streamSettings;
@@ -203,8 +202,7 @@ private:
 	bool m_isSecureConnection{false};
 	prudpAuthServerInfo m_authInfo;
 
-	// socket
-	SOCKET m_socketUdp;
+	NetSocket m_socketUdp;
 };
 
 uint32 prudpGetMSTimestamp();

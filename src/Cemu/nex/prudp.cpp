@@ -480,42 +480,26 @@ prudpClient::prudpClient()
 prudpClient::prudpClient(uint32 dstIp, uint16 dstPort, const char* key)
 	: prudpClient()
 {
-	m_dstIp = dstIp;
-	m_dstPort = dstPort;
+	m_dstAddress = NetSocket::Address::FromIPv4(dstIp, dstPort);
 	// get unused random source port
 	for (sint32 tries = 0; tries < 5; tries++)
 	{
 		m_srcPort = AllocateRandomSrcPRUDPPort();
-		// create and bind udp socket
-		m_socketUdp = socket(AF_INET, SOCK_DGRAM, 0);
-		struct sockaddr_in udpServer;
-		udpServer.sin_family = AF_INET;
-		udpServer.sin_addr.s_addr = INADDR_ANY;
-		udpServer.sin_port = htons(m_srcPort);
-		if (bind(m_socketUdp, (struct sockaddr*)&udpServer, sizeof(udpServer)) == SOCKET_ERROR)
+		auto socket = NetSocket::Open(NetSocket::AddressFamily::IPv4, NetSocket::Type::Udp);
+		if (socket && socket->Bind(NetSocket::Address::Any(NetSocket::AddressFamily::IPv4, m_srcPort)))
 		{
-			ReleasePRUDPSrcPort(m_srcPort);
-			m_srcPort = 0;
-			if (tries == 4)
-			{
-				cemuLog_log(LogType::Force, "PRUDP: Failed to bind UDP socket");
-				m_currentConnectionState = ConnectionState::Disconnected;
-				return;
-			}
-			closesocket(m_socketUdp);
-			continue;
-		}
-		else
+			m_socketUdp = std::move(*socket);
 			break;
+		}
+		ReleasePRUDPSrcPort(m_srcPort);
+		m_srcPort = 0;
+		if (tries == 4)
+		{
+			cemuLog_log(LogType::Force, "PRUDP: Failed to bind UDP socket");
+			m_currentConnectionState = ConnectionState::Disconnected;
+			return;
+		}
 	}
-	// set socket to non-blocking mode
-#if BOOST_OS_WINDOWS
-	u_long nonBlockingMode = 1; // 1 to enable non-blocking socket
-	ioctlsocket(m_socketUdp, FIONBIO, &nonBlockingMode);
-#else
-	int flags = fcntl(m_socketUdp, F_GETFL);
-	fcntl(m_socketUdp, F_SETFL, flags | O_NONBLOCK);
-#endif
 	// generate frequently used parameters
 	m_srcVPort = PRUDP_VPORT(prudpPacket::STREAM_TYPE_SECURE, 0xF);
 	m_dstVPort = PRUDP_VPORT(prudpPacket::STREAM_TYPE_SECURE, 0x1);
@@ -551,10 +535,7 @@ prudpClient::prudpClient(uint32 dstIp, uint16 dstPort, const char* key, prudpAut
 prudpClient::~prudpClient()
 {
 	if (m_srcPort != 0)
-	{
 		ReleasePRUDPSrcPort(m_srcPort);
-		closesocket(m_socketUdp);
-	}
 }
 
 void prudpClient::AcknowledgePacket(uint16 sequenceId)
@@ -797,9 +778,8 @@ bool prudpClient::Update()
 	uint8 receiveBuffer[4096];
 	while (true)
 	{
-		sockaddr receiveFrom = {0};
-		socklen_t receiveFromLen = sizeof(receiveFrom);
-		sint32 r = recvfrom(m_socketUdp, (char*)receiveBuffer, sizeof(receiveBuffer), 0, &receiveFrom, &receiveFromLen);
+		NetSocket::Address receiveFrom;
+		const sint32 r = m_socketUdp.ReceiveFrom(receiveBuffer, sizeof(receiveBuffer), receiveFrom, std::chrono::milliseconds(0));
 		if (r >= 0)
 		{
 			// todo: Verify sender (receiveFrom)
@@ -913,11 +893,7 @@ void prudpClient::DirectSendPacket(prudpPacket* packet)
 		cemuLog_log(LogType::Force, "PRUDP: Packet exceeds maximum size");
 		return;
 	}
-	sockaddr_in destAddr;
-	destAddr.sin_family = AF_INET;
-	destAddr.sin_port = htons(m_dstPort);
-	destAddr.sin_addr.s_addr = m_dstIp;
-	sendto(m_socketUdp, (const char*)packetBuffer, len, 0, (const sockaddr*)&destAddr, sizeof(destAddr));
+	m_socketUdp.SendTo(packetBuffer, len, m_dstAddress);
 }
 
 void prudpClient::QueuePacket(prudpPacket* packet)
