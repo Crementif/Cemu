@@ -36,6 +36,7 @@
 #include <cmath>
 #include <ctime>
 #include <cassert>
+#include <cstring>
 
 #if defined(ARCH_X86_64)
 #include <immintrin.h>
@@ -48,6 +49,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <limits>
 
 #include <mutex>
 #include <shared_mutex>

@@ -49,6 +49,8 @@ add_library(CemuUtil
   math/vector2.h
   math/vector3.h
   MemMapper/MemMapper.h
+  net/NetSocket.cpp
+  net/NetSocket.h
   SystemInfo/SystemInfo.cpp
   SystemInfo/SystemInfo.h
   ThreadPool/ThreadPool.h
@@ -73,6 +75,7 @@ if(WIN32)
 	target_sources(CemuUtil PRIVATE Fiber/FiberWin.cpp)
 	target_sources(CemuUtil PRIVATE MemMapper/MemMapperWin.cpp)
 	target_sources(CemuUtil PRIVATE SystemInfo/SystemInfoWin.cpp)
+	target_link_libraries(CemuUtil PRIVATE ws2_32)
 elseif(UNIX)
 	target_sources(CemuUtil PRIVATE Fiber/FiberUnix.cpp)
 	target_sources(CemuUtil PRIVATE MemMapper/MemMapperUnix.cpp)
