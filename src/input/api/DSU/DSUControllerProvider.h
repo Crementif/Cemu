@@ -4,7 +4,6 @@
 #include "input/api/DSU/DSUMessages.h"
 
 #include "input/api/ControllerProvider.h"
-#include "util/helpers/ConcurrentQueue.h"
 
 #include <boost/asio.hpp>
 
@@ -89,25 +88,32 @@ public:
 private:
 	uint16 m_server_version = 0;
 
-	std::atomic_bool m_running = false;
-	std::thread m_reader_thread, m_writer_thread;
+	std::thread m_io_thread;
 
-	void reader_thread();
-	void writer_thread();
+	void start();
+	template<typename T>
+	void send(const T& msg);
+	void start_receive();
+	void start_heartbeat();
+	void handle_message(const char* data, size_t len);
 	void integrate_motion(uint8_t index, const DataResponse& data_response);
 
 	uint32 m_uid;
 	boost::asio::io_context m_io_service;
 	boost::asio::ip::udp::endpoint m_receiver_endpoint;
 	boost::asio::ip::udp::socket m_socket;
-	boost::asio::ip::udp::endpoint m_socketWakeupEndpoint;
+	boost::asio::steady_timer m_heartbeat_timer;
+	boost::asio::steady_timer m_retry_timer;
+
+	std::array<char, 100> m_recv_buf;
+	boost::asio::ip::udp::endpoint m_sender_endpoint;
 
 	std::array<ControllerState, kMaxClients> m_state{};
 	std::array<ControllerState, kMaxClients> m_prev_state{};
 	mutable std::array<std::mutex, kMaxClients> m_mutex;
 	mutable std::array<std::condition_variable, kMaxClients> m_wait_cond;
 
-	ConcurrentQueue<std::unique_ptr<ClientMessage>> m_writerJobs;
+	std::array<std::atomic_bool, kMaxClients> m_subscribed{};
 
 	std::array<WiiUMotionHandler, kMaxClients> m_motion_handler;
 	std::array<uint64, kMaxClients> m_last_motion_timestamp{};

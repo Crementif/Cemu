@@ -45,9 +45,6 @@ void DSUController::load(const pugi::xml_node& node)
 
 bool DSUController::connect()
 {
-	if (is_connected())
-		return true;
-
 	m_provider->request_pad_data(m_index);
 	return is_connected();
 }

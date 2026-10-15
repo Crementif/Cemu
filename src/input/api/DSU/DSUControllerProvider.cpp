@@ -4,63 +4,46 @@
 #if BOOST_OS_WINDOWS
 #include <boost/asio/detail/socket_option.hpp>
 #include <winsock2.h>
+#include <mstcpip.h>
 #elif BOOST_OS_LINUX || BOOST_OS_MACOS
 #include <sys/time.h>
 #include <sys/socket.h>
 #endif
 
 DSUControllerProvider::DSUControllerProvider()
-	: base_type(), m_uid(rand()), m_socket(m_io_service)
+	: base_type(), m_uid(rand()), m_socket(m_io_service), m_heartbeat_timer(m_io_service), m_retry_timer(m_io_service)
 {
-	if (!connect())
-	{
-		throw std::runtime_error("dsu client can't open the udp connection");
-	}
-
-	m_running = true;
-	m_reader_thread = std::thread(&DSUControllerProvider::reader_thread, this);
-	m_writer_thread = std::thread(&DSUControllerProvider::writer_thread, this);
-	request_version();
+	start();
 }
 
 DSUControllerProvider::DSUControllerProvider(const DSUProviderSettings& settings)
-	: base_type(settings), m_uid(rand()), m_socket(m_io_service)
+	: base_type(settings), m_uid(rand()), m_socket(m_io_service), m_heartbeat_timer(m_io_service), m_retry_timer(m_io_service)
 {
-	if (!connect())
-	{
-		throw std::runtime_error("dsu client can't open the udp connection");
-	}
-
-	m_running = true;
-	m_reader_thread = std::thread(&DSUControllerProvider::reader_thread, this);
-	m_writer_thread = std::thread(&DSUControllerProvider::writer_thread, this);
-	request_version();
+	start();
 }
 
 DSUControllerProvider::~DSUControllerProvider()
 {
-	if (m_running)
+	m_io_service.stop();
+	if (m_io_thread.joinable())
+		m_io_thread.join();
+}
+
+void DSUControllerProvider::start()
+{
+	if (!connect())
 	{
-		m_running = false;
-		// wake up the reader thread by sending a packet to self
-		if (m_socketWakeupEndpoint.port() != 0)
-		{
-			boost::asio::io_context io_context;
-			boost::asio::ip::udp::socket socket(io_context);
-			boost::system::error_code ec;
-			socket.open(m_socketWakeupEndpoint.protocol(), ec);
-			if (!ec)
-			{
-				std::array<char, 1> data{};
-				socket.send_to(boost::asio::buffer(data), m_socketWakeupEndpoint, 0, ec);
-			}
-			else
-				cemuLog_log(LogType::Force, "DSUControllerProvider wakeup failed");
-		}
-		m_reader_thread.join();
-		m_writerJobs.push(nullptr); // wake up writer thread by pushing an empty message
-		m_writer_thread.join();
+		throw std::runtime_error("dsu client can't open the udp connection");
 	}
+
+	start_receive();
+	start_heartbeat();
+	m_io_thread = std::thread([this]
+	{
+		SetThreadName("DSU-client");
+		m_io_service.run();
+	});
+	request_version();
 }
 
 std::vector<std::shared_ptr<ControllerBase>> DSUControllerProvider::get_controllers()
@@ -101,7 +84,12 @@ bool DSUControllerProvider::connect()
 
 		m_socket.open(ip::udp::v4());
 		m_socket.bind(ip::udp::endpoint(ip::udp::v4(), 0));
-		m_socketWakeupEndpoint = ip::udp::endpoint(boost::asio::ip::address_v4::loopback(), m_socket.local_endpoint().port());
+#if BOOST_OS_WINDOWS
+		// don't fail the next receive with WSAECONNRESET when a send gets an ICMP port unreachable reply
+		BOOL reportConnReset = FALSE;
+		DWORD bytesReturned = 0;
+		WSAIoctl(m_socket.native_handle(), SIO_UDP_CONNRESET, &reportConnReset, sizeof(reportConnReset), nullptr, 0, &bytesReturned, nullptr, nullptr);
+#endif
 		// reset data
 		m_state = {};
 		m_prev_state = {};
@@ -196,16 +184,24 @@ uint32_t DSUControllerProvider::get_packet_index(uint8_t index) const
 	return m_state[index].packet_index;
 }
 
+template<typename T>
+void DSUControllerProvider::send(const T& msg)
+{
+	boost::asio::post(m_io_service, [this, msg]
+	{
+		boost::system::error_code ec;
+		m_socket.send_to(boost::asio::buffer(&msg, msg.GetSize()), m_receiver_endpoint, 0, ec);
+	});
+}
+
 void DSUControllerProvider::request_version()
 {
-	auto msg = std::make_unique<VersionRequest>(m_uid);
-	m_writerJobs.push(std::move(msg));
+	send(VersionRequest(m_uid));
 }
 
 void DSUControllerProvider::request_pad_info()
 {
-	auto msg = std::make_unique<ListPorts>(m_uid, 4, std::array<uint8_t, 4>{0, 1, 2, 3});
-	m_writerJobs.push(std::move(msg));
+	send(ListPorts(m_uid, 4, std::array<uint8_t, 4>{0, 1, 2, 3}));
 }
 
 void DSUControllerProvider::request_pad_info(uint8_t index)
@@ -213,14 +209,12 @@ void DSUControllerProvider::request_pad_info(uint8_t index)
 	if (index >= kMaxClients)
 		return;
 
-	auto msg = std::make_unique<ListPorts>(m_uid, 1, std::array<uint8_t, 4>{index});
-	m_writerJobs.push(std::move(msg));
+	send(ListPorts(m_uid, 1, std::array<uint8_t, 4>{index}));
 }
 
 void DSUControllerProvider::request_pad_data()
 {
-	auto msg = std::make_unique<DataRequest>(m_uid);
-	m_writerJobs.push(std::move(msg));
+	send(DataRequest(m_uid));
 }
 
 void DSUControllerProvider::request_pad_data(uint8_t index)
@@ -228,8 +222,9 @@ void DSUControllerProvider::request_pad_data(uint8_t index)
 	if (index >= kMaxClients)
 		return;
 
-	auto msg = std::make_unique<DataRequest>(m_uid, index);
-	m_writerJobs.push(std::move(msg));
+	// the heartbeat keeps the subscription alive, so only the first request is sent right away
+	if (!m_subscribed[index].exchange(true))
+		send(DataRequest(m_uid, index));
 }
 
 MotionSample DSUControllerProvider::get_motion_sample(uint8_t index) const
@@ -241,122 +236,98 @@ MotionSample DSUControllerProvider::get_motion_sample(uint8_t index) const
 }
 
 
-void DSUControllerProvider::reader_thread()
+void DSUControllerProvider::start_receive()
 {
-	SetThreadName("DSU-reader");
-	bool first_read = true;
-	while (m_running.load(std::memory_order_relaxed))
+	m_socket.async_receive_from(boost::asio::buffer(m_recv_buf), m_sender_endpoint, [this](const boost::system::error_code& ec, size_t len)
 	{
-		ServerMessage* msg;
-		//try
-		//{
-		std::array<char, 100> recv_buf; // NOLINT(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
-		boost::asio::ip::udp::endpoint sender_endpoint;
-		boost::system::error_code ec{};
-		const size_t len = m_socket.receive_from(boost::asio::buffer(recv_buf), sender_endpoint, 0, ec);
-		if (!m_running.load(std::memory_order_relaxed))
-			break;
-		if (ec)
+		if (ec == boost::asio::error::operation_aborted)
+			return;
+		if (!ec)
 		{
-			// there's probably no server listening on the given address:port
-			if (first_read) // workaroud: first read always fails?
-				first_read = false;
-			else
-			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(250));
-				std::this_thread::yield();
-			}
-			continue;
+			handle_message(m_recv_buf.data(), len);
+			start_receive();
+			return;
 		}
 
-		if (len < sizeof(ServerMessage)) // cant be a valid message
-			continue;
-
-		msg = (ServerMessage*)recv_buf.data();
-		//		}
-		//		catch (const std::exception&)
-		//		{
-		//
-		//			// there's probably no server listening on the given address:port
-		//			if (first_read) // workaroud: first read always fails?
-		//				first_read = false;
-		//			else
-		//			{
-		//				std::this_thread::sleep_for(std::chrono::milliseconds(250));
-		//				std::this_thread::yield();
-		//			}
-		//			continue;
-		//		}
-
-		uint8_t index = 0xFF;
-		switch (msg->GetMessageType())
+		m_retry_timer.expires_after(std::chrono::milliseconds(250));
+		m_retry_timer.async_wait([this](const boost::system::error_code& timerEc)
 		{
-		case MessageType::Version:
-			{
-				const auto rsp = (VersionResponse*)msg;
-				if (!rsp->IsValid())
-					continue;
-
-				m_server_version = rsp->GetVersion();
-				// wdc
-				break;
-			}
-		case MessageType::Information:
-			{
-				const auto info = (PortInfo*)msg;
-				if (!info->IsValid())
-					continue;
-
-				index = info->GetIndex();
-				cemu_assert(index < kMaxClients);
-
-				auto& mutex = m_mutex[index];
-				std::scoped_lock lock(mutex);
-				m_prev_state[index] = m_state[index];
-				m_state[index] = *info;
-				m_wait_cond[index].notify_all();
-				break;
-			}
-		case MessageType::Data:
-			{
-				const auto rsp = (DataResponse*)msg;
-				if (!rsp->IsValid())
-					continue;
-
-				index = rsp->GetIndex();
-				cemu_assert(index < kMaxClients);
-
-				auto& mutex = m_mutex[index];
-				std::scoped_lock lock(mutex);
-				m_prev_state[index] = m_state[index];
-				m_state[index] = *rsp;
-				m_wait_cond[index].notify_all();
-				// update motion info immediately, guaranteeing that we dont drop packets
-				integrate_motion(index, *rsp);
-				break;
-			}
-		}
-
-		if (index != 0xFF)
-			request_pad_data(index);
-	}
+			if (!timerEc)
+				start_receive();
+		});
+	});
 }
 
-void DSUControllerProvider::writer_thread()
+void DSUControllerProvider::start_heartbeat()
 {
-	SetThreadName("DSU-writer");
-	while (m_running.load(std::memory_order_relaxed))
+	// servers stop streaming to clients that haven't requested data for a while, so keep re-requesting every subscribed pad
+	m_heartbeat_timer.expires_after(std::chrono::seconds(1));
+	m_heartbeat_timer.async_wait([this](const boost::system::error_code& ec)
 	{
-		std::unique_ptr<ClientMessage> msg = m_writerJobs.pop();
-		if (!m_running.load(std::memory_order_relaxed))
+		if (ec)
 			return;
-		cemu_assert_debug(msg.get());
-		try
+		for (uint8_t i = 0; i < kMaxClients; ++i)
 		{
-			m_socket.send_to(boost::asio::buffer(msg.get(), msg->GetSize()), m_receiver_endpoint);
+			if (m_subscribed[i])
+				send(DataRequest(m_uid, i));
 		}
-		catch (const std::exception&)
-			std::this_thread::sleep_for(std::chrono::milliseconds(250));
+		start_heartbeat();
+	});
+}
+
+void DSUControllerProvider::handle_message(const char* data, size_t len)
+{
+	if (len < sizeof(ServerMessage)) // cant be a valid message
+		return;
+
+	const auto msg = (const ServerMessage*)data;
+
+	switch (msg->GetMessageType())
+	{
+	case MessageType::Version:
+		{
+			const auto rsp = (VersionResponse*)msg;
+			if (!rsp->IsValid())
+				return;
+
+			m_server_version = rsp->GetVersion();
+			// wdc
+			break;
+		}
+	case MessageType::Information:
+		{
+			const auto info = (PortInfo*)msg;
+			if (!info->IsValid())
+				return;
+
+			const uint8_t index = info->GetIndex();
+			cemu_assert(index < kMaxClients);
+
+			auto& mutex = m_mutex[index];
+			std::scoped_lock lock(mutex);
+			m_prev_state[index] = m_state[index];
+			m_state[index] = *info;
+			m_wait_cond[index].notify_all();
+			break;
+		}
+	case MessageType::Data:
+		{
+			const auto rsp = (DataResponse*)msg;
+			if (!rsp->IsValid())
+				return;
+
+			const uint8_t index = rsp->GetIndex();
+			cemu_assert(index < kMaxClients);
+
+			auto& mutex = m_mutex[index];
+			std::scoped_lock lock(mutex);
+			m_prev_state[index] = m_state[index];
+			m_state[index] = *rsp;
+			m_wait_cond[index].notify_all();
+			// update motion info immediately, guaranteeing that we dont drop packets
+			integrate_motion(index, *rsp);
+			break;
+		}
 	}
 }
 
