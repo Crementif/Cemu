@@ -782,7 +782,8 @@ bool prudpClient::Update()
 		const sint32 r = m_socketUdp.ReceiveFrom(receiveBuffer, sizeof(receiveBuffer), receiveFrom, std::chrono::milliseconds(0));
 		if (r >= 0)
 		{
-			// todo: Verify sender (receiveFrom)
+			if (receiveFrom != m_dstAddress)
+				continue;
 			// calculate packet size
 			sint32 pIdx = 0;
 			while (pIdx < r)
