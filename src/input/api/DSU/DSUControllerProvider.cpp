@@ -16,7 +16,10 @@ DSUControllerProvider::DSUControllerProvider(const DSUProviderSettings& settings
 DSUControllerProvider::~DSUControllerProvider()
 {
 	if (m_running.exchange(false))
+	{
+		m_socket.Interrupt();
 		m_thread.join();
+	}
 }
 
 void DSUControllerProvider::start()
@@ -225,11 +228,11 @@ void DSUControllerProvider::client_thread()
 
 		uint8 buffer[100];
 		NetSocket::Address sender;
-		const sint32 result = m_socket.ReceiveFrom(buffer, sizeof(buffer), sender, std::chrono::milliseconds(100));
+		const sint32 result = m_socket.ReceiveFrom(buffer, sizeof(buffer), sender, std::chrono::ceil<std::chrono::milliseconds>(nextHeartbeat - now));
 		if (result >= 0)
 			handle_message(reinterpret_cast<const char*>(buffer), result);
-		else if (result != NetSocket::kErrorTimeout)
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		else if (result == NetSocket::kErrorInterrupted)
+			return;
 	}
 }
 
