@@ -1,32 +1,22 @@
 #include "input/api/DSU/DSUControllerProvider.h"
 #include "input/api/DSU/DSUController.h"
 
-#if BOOST_OS_WINDOWS
-#include <boost/asio/detail/socket_option.hpp>
-#include <winsock2.h>
-#include <mstcpip.h>
-#elif BOOST_OS_LINUX || BOOST_OS_MACOS
-#include <sys/time.h>
-#include <sys/socket.h>
-#endif
-
 DSUControllerProvider::DSUControllerProvider()
-	: base_type(), m_uid(rand()), m_socket(m_io_service), m_heartbeat_timer(m_io_service), m_retry_timer(m_io_service)
+	: base_type(), m_uid(rand())
 {
 	start();
 }
 
 DSUControllerProvider::DSUControllerProvider(const DSUProviderSettings& settings)
-	: base_type(settings), m_uid(rand()), m_socket(m_io_service), m_heartbeat_timer(m_io_service), m_retry_timer(m_io_service)
+	: base_type(settings), m_uid(rand())
 {
 	start();
 }
 
 DSUControllerProvider::~DSUControllerProvider()
 {
-	m_io_service.stop();
-	if (m_io_thread.joinable())
-		m_io_thread.join();
+	if (m_running.exchange(false))
+		m_thread.join();
 }
 
 void DSUControllerProvider::start()
@@ -36,13 +26,8 @@ void DSUControllerProvider::start()
 		throw std::runtime_error("dsu client can't open the udp connection");
 	}
 
-	start_receive();
-	start_heartbeat();
-	m_io_thread = std::thread([this]
-	{
-		SetThreadName("DSU-client");
-		m_io_service.run();
-	});
+	m_running = true;
+	m_thread = std::thread(&DSUControllerProvider::client_thread, this);
 	request_version();
 }
 
@@ -68,40 +53,28 @@ std::vector<std::shared_ptr<ControllerBase>> DSUControllerProvider::get_controll
 
 bool DSUControllerProvider::connect()
 {
-	// already connected?
-	if (m_receiver_endpoint.address().to_string() == get_settings().ip && m_receiver_endpoint.port() == get_settings().port)
+	if (m_socket.IsOpen())
 		return true;
 
-	try
+	const auto serverAddress = NetSocket::Address::Resolve(get_settings().ip, get_settings().port, NetSocket::AddressFamily::IPv4);
+	if (!serverAddress)
 	{
-		using namespace boost::asio;
-
-		ip::udp::resolver resolver(m_io_service);
-		m_receiver_endpoint = *resolver.resolve(get_settings().ip, fmt::format("{}", get_settings().port)).cbegin();
-
-		if (m_socket.is_open())
-			m_socket.close();
-
-		m_socket.open(ip::udp::v4());
-		m_socket.bind(ip::udp::endpoint(ip::udp::v4(), 0));
-#if BOOST_OS_WINDOWS
-		// don't fail the next receive with WSAECONNRESET when a send gets an ICMP port unreachable reply
-		BOOL reportConnReset = FALSE;
-		DWORD bytesReturned = 0;
-		WSAIoctl(m_socket.native_handle(), SIO_UDP_CONNRESET, &reportConnReset, sizeof(reportConnReset), nullptr, 0, &bytesReturned, nullptr, nullptr);
-#endif
-		// reset data
-		m_state = {};
-		m_prev_state = {};
-
-		// restart threads
-		return true;
-	}
-	catch (const std::exception& ex)
-	{
-		cemuLog_log(LogType::Force, "dsu client connect error: {}", ex.what());
+		cemuLog_log(LogType::Force, "dsu client connect error: can't resolve {}:{}", get_settings().ip, get_settings().port);
 		return false;
 	}
+
+	auto socket = NetSocket::Open(NetSocket::AddressFamily::IPv4, NetSocket::Type::Udp);
+	if (!socket || !socket->Bind(NetSocket::Address::Any(NetSocket::AddressFamily::IPv4)))
+	{
+		cemuLog_log(LogType::Force, "dsu client connect error: can't open a udp socket");
+		return false;
+	}
+
+	m_server_address = *serverAddress;
+	m_socket = std::move(*socket);
+	m_state = {};
+	m_prev_state = {};
+	return true;
 }
 
 bool DSUControllerProvider::is_connected(uint8_t index) const
@@ -187,11 +160,7 @@ uint32_t DSUControllerProvider::get_packet_index(uint8_t index) const
 template<typename T>
 void DSUControllerProvider::send(const T& msg)
 {
-	boost::asio::post(m_io_service, [this, msg]
-	{
-		boost::system::error_code ec;
-		m_socket.send_to(boost::asio::buffer(&msg, msg.GetSize()), m_receiver_endpoint, 0, ec);
-	});
+	m_socket.SendTo(&msg, msg.GetSize(), m_server_address);
 }
 
 void DSUControllerProvider::request_version()
@@ -236,43 +205,32 @@ MotionSample DSUControllerProvider::get_motion_sample(uint8_t index) const
 }
 
 
-void DSUControllerProvider::start_receive()
+void DSUControllerProvider::client_thread()
 {
-	m_socket.async_receive_from(boost::asio::buffer(m_recv_buf), m_sender_endpoint, [this](const boost::system::error_code& ec, size_t len)
+	SetThreadName("DSU-client");
+	auto nextHeartbeat = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+	while (m_running.load(std::memory_order_relaxed))
 	{
-		if (ec == boost::asio::error::operation_aborted)
-			return;
-		if (!ec)
+		// servers stop streaming to clients that haven't requested data for a while, so keep re-requesting every subscribed pad
+		const auto now = std::chrono::steady_clock::now();
+		if (now >= nextHeartbeat)
 		{
-			handle_message(m_recv_buf.data(), len);
-			start_receive();
-			return;
+			for (uint8_t i = 0; i < kMaxClients; ++i)
+			{
+				if (m_subscribed[i])
+					send(DataRequest(m_uid, i));
+			}
+			nextHeartbeat = now + std::chrono::seconds(1);
 		}
 
-		m_retry_timer.expires_after(std::chrono::milliseconds(250));
-		m_retry_timer.async_wait([this](const boost::system::error_code& timerEc)
-		{
-			if (!timerEc)
-				start_receive();
-		});
-	});
-}
-
-void DSUControllerProvider::start_heartbeat()
-{
-	// servers stop streaming to clients that haven't requested data for a while, so keep re-requesting every subscribed pad
-	m_heartbeat_timer.expires_after(std::chrono::seconds(1));
-	m_heartbeat_timer.async_wait([this](const boost::system::error_code& ec)
-	{
-		if (ec)
-			return;
-		for (uint8_t i = 0; i < kMaxClients; ++i)
-		{
-			if (m_subscribed[i])
-				send(DataRequest(m_uid, i));
-		}
-		start_heartbeat();
-	});
+		uint8 buffer[100];
+		NetSocket::Address sender;
+		const sint32 result = m_socket.ReceiveFrom(buffer, sizeof(buffer), sender, std::chrono::milliseconds(100));
+		if (result >= 0)
+			handle_message(reinterpret_cast<const char*>(buffer), result);
+		else if (result != NetSocket::kErrorTimeout)
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
 }
 
 void DSUControllerProvider::handle_message(const char* data, size_t len)
