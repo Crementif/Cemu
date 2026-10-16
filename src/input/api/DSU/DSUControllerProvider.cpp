@@ -249,7 +249,8 @@ void DSUControllerProvider::handle_message(const char* data, size_t len)
 				return;
 
 			const uint8_t index = info->GetIndex();
-			cemu_assert(index < kMaxClients);
+			if (index >= kMaxClients)
+				return;
 
 			auto& mutex = m_mutex[index];
 			std::scoped_lock lock(mutex);
@@ -265,7 +266,8 @@ void DSUControllerProvider::handle_message(const char* data, size_t len)
 				return;
 
 			const uint8_t index = rsp->GetIndex();
-			cemu_assert(index < kMaxClients);
+			if (index >= kMaxClients)
+				return;
 
 			auto& mutex = m_mutex[index];
 			std::scoped_lock lock(mutex);
