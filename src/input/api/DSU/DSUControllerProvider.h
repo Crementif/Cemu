@@ -72,10 +72,10 @@ public:
 	ControllerState get_prev_state(uint8_t index) const;
 	MotionSample get_motion_sample(uint8_t index) const;
 
-	std::array<bool, kMaxClients> wait_update(const std::array<uint8_t, kMaxClients>& indices, size_t timeout) const;
-	bool wait_update(uint8_t index, uint32_t packet_index, size_t timeout) const;
+	std::array<bool, kMaxClients> wait_update(const std::array<uint64, kMaxClients>& indices, size_t timeout) const;
+	bool wait_update(uint8_t index, uint64 packet_index, size_t timeout) const;
 
-	uint32_t get_packet_index(uint8_t index) const;
+	uint64 get_packet_index(uint8_t index) const;
 	// refresh pad info for all pads
 	void request_pad_info();
 	// refresh pad info for pad with given index

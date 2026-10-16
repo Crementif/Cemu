@@ -38,7 +38,7 @@ std::vector<std::shared_ptr<ControllerBase>> DSUControllerProvider::get_controll
 {
 	std::vector<ControllerPtr> result;
 
-	std::array<uint8_t, kMaxClients> indices;
+	std::array<uint64, kMaxClients> indices;
 	for (auto i = 0; i < kMaxClients; ++i)
 		indices[i] = get_packet_index(i);
 
@@ -108,34 +108,21 @@ DSUControllerProvider::ControllerState DSUControllerProvider::get_prev_state(uin
 }
 
 std::array<bool, DSUControllerProvider::kMaxClients> DSUControllerProvider::wait_update(
-	const std::array<uint8_t, kMaxClients>& indices, size_t timeout) const
+	const std::array<uint64, kMaxClients>& indices, size_t timeout) const
 {
 	std::array<bool, kMaxClients> result{};
 
 	const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
-	do
+	for (int i = 0; i < kMaxClients; ++i)
 	{
-		for (int i = 0; i < kMaxClients; ++i)
-		{
-			if (result[i])
-				continue;
-
-			std::unique_lock lock(m_mutex[i]);
-			result[i] = indices[i] < m_state[i].packet_index;
-		}
-
-		if (std::all_of(result.cbegin(), result.cend(), [](const bool& v) { return v == true; }))
-			break;
-
-		//std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		std::this_thread::yield();
+		std::unique_lock lock(m_mutex[i]);
+		result[i] = m_wait_cond[i].wait_until(lock, end, [this, &indices, i]() { return indices[i] < m_state[i].packet_index; });
 	}
-	while (std::chrono::steady_clock::now() < end);
 
 	return result;
 }
 
-bool DSUControllerProvider::wait_update(uint8_t index, uint32_t packet_index, size_t timeout) const
+bool DSUControllerProvider::wait_update(uint8_t index, uint64 packet_index, size_t timeout) const
 {
 	if (index >= kMaxClients)
 		return false;
@@ -154,7 +141,7 @@ bool DSUControllerProvider::wait_update(uint8_t index, uint32_t packet_index, si
 	return result;
 }
 
-uint32_t DSUControllerProvider::get_packet_index(uint8_t index) const
+uint64 DSUControllerProvider::get_packet_index(uint8_t index) const
 {
 	std::scoped_lock lock(m_mutex[index]);
 	return m_state[index].packet_index;
