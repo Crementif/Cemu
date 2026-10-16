@@ -40,7 +40,7 @@ class DSUControllerProvider : public ControllerProvider<DSUProviderSettings>
 	friend class DSUController;
 	using base_type = ControllerProvider<DSUProviderSettings>;
 public:
-	constexpr static int kMaxClients = 8;
+	constexpr static int kMaxClients = 4;
 
 	struct ControllerState
 	{

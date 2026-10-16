@@ -110,7 +110,7 @@ DSUControllerProvider::ControllerState DSUControllerProvider::get_prev_state(uin
 std::array<bool, DSUControllerProvider::kMaxClients> DSUControllerProvider::wait_update(
 	const std::array<uint8_t, kMaxClients>& indices, size_t timeout) const
 {
-	std::array<bool, kMaxClients> result{false, false, false, false};
+	std::array<bool, kMaxClients> result{};
 
 	const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
 	do
