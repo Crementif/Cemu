@@ -96,6 +96,7 @@ namespace WindowSystem
 	{
 		ShowErrorDialog(message, "", errorCategory);
 	}
+	void ShowLinkDialog(std::string_view message, std::string_view title, std::string_view linkLabel, std::string_view url);
 
 	void Create();
 

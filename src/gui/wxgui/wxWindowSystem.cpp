@@ -66,6 +66,17 @@ void WindowSystem::ShowErrorDialog(std::string_view message, std::string_view ti
 	wxMessageBox(wxString::FromUTF8(message), caption, wxOK | wxCENTRE | wxICON_ERROR);
 }
 
+void WindowSystem::ShowLinkDialog(std::string_view message, std::string_view title, std::string_view linkLabel, std::string_view url)
+{
+	wxTheApp->CallAfter([message = wxString::FromUTF8(message), title = wxString::FromUTF8(title), linkLabel = wxString::FromUTF8(linkLabel), url = wxString::FromUTF8(url)]()
+	{
+		wxMessageDialog dialog(g_mainFrame, message, title, wxYES_NO | wxCENTRE | wxICON_INFORMATION);
+		dialog.SetYesNoLabels(linkLabel, _("Later"));
+		if (dialog.ShowModal() == wxID_YES)
+			wxLaunchDefaultBrowser(url);
+	});
+}
+
 WindowSystem::WindowInfo& WindowSystem::GetWindowInfo()
 {
 	return g_window_info;

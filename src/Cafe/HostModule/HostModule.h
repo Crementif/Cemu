@@ -99,6 +99,7 @@ namespace HostModule
 	uint8_t* GetGuestMemoryBase();
 	std::filesystem::path GetUserDataPath();
 	void ShowErrorDialog(const char* title, const char* message);
+	void ShowLinkDialog(const char* title, const char* message, const char* linkLabel, const char* url);
 	void RegisterHLEFunction(const char* libraryName, const char* functionName, HLEFunction function);
 	void RegisterGraphicPack(const std::filesystem::path& path, PackOrder order);
 	const std::vector<std::pair<std::filesystem::path, PackOrder>>& GetGraphicPacks();
