@@ -105,6 +105,9 @@ namespace HostModule
 	const std::vector<std::pair<std::filesystem::path, PackOrder>>& GetGraphicPacks();
 	void RegisterBundledGraphicPacks(const std::filesystem::path& directory);
 	const std::vector<std::filesystem::path>& GetBundledGraphicPackDirectories();
+	std::vector<std::string> GetGraphicPackPresets(const std::filesystem::path& path, std::string_view category);
+	std::string GetGraphicPackPreset(const std::filesystem::path& path, std::string_view category);
+	bool SetGraphicPackPreset(const std::filesystem::path& path, std::string_view category, std::string_view preset);
 #ifdef ENABLE_VULKAN
 	PFN_vkGetInstanceProcAddr GetVkInstanceProcAddr();
 	PFN_vkGetDeviceProcAddr GetVkDeviceProcAddr();

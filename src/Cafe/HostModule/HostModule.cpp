@@ -3,7 +3,9 @@
 #include "Cafe/OS/common/OSCommon.h"
 #include "Cafe/HW/MMU/MMU.h"
 #include "config/ActiveSettings.h"
+#include "config/CemuConfig.h"
 #include "config/LaunchSettings.h"
+#include "Cafe/GraphicPack/GraphicPack2.h"
 #include "WindowSystem.h"
 #include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
@@ -97,6 +99,50 @@ namespace HostModule
 	void RegisterBundledGraphicPacks(const fs::path& directory)
 	{
 		s_bundledGraphicPackDirectories.emplace_back(directory);
+	}
+
+	static std::shared_ptr<GraphicPack2> FindGraphicPack(const fs::path& path)
+	{
+		for (const auto& pack : GraphicPack2::GetGraphicPacks())
+		{
+			std::error_code error;
+			if (fs::equivalent(pack->GetRulesPath().parent_path(), path, error))
+				return pack;
+		}
+		return nullptr;
+	}
+
+	std::vector<std::string> GetGraphicPackPresets(const fs::path& path, std::string_view category)
+	{
+		std::vector<std::string> names;
+		if (std::shared_ptr<GraphicPack2> pack = FindGraphicPack(path))
+		{
+			for (const auto& preset : pack->GetPresets())
+			{
+				if (preset->category == category && pack->IsPresetVisible(preset))
+					names.emplace_back(preset->name);
+			}
+		}
+		return names;
+	}
+
+	std::string GetGraphicPackPreset(const fs::path& path, std::string_view category)
+	{
+		std::shared_ptr<GraphicPack2> pack = FindGraphicPack(path);
+		return pack ? pack->GetActivePreset(category) : std::string();
+	}
+
+	bool SetGraphicPackPreset(const fs::path& path, std::string_view category, std::string_view preset)
+	{
+		std::shared_ptr<GraphicPack2> pack = FindGraphicPack(path);
+		if (!pack || !pack->SetActivePreset(category, preset))
+			return false;
+		// a preset can change what the other categories show
+		auto& entry = GetConfigHandle().data().graphic_pack_entries[_utf8ToPath(pack->GetNormalizedPathString())];
+		for (const auto& active : pack->GetActivePresets())
+			entry.insert_or_assign(active->category, active->name);
+		GetConfigHandle().Save();
+		return true;
 	}
 
 	void UseMultiviewStereo()
