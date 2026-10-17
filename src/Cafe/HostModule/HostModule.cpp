@@ -17,6 +17,7 @@ namespace HostModule
 	static std::vector<Module*> s_modules;
 	static std::vector<std::pair<fs::path, PackOrder>> s_graphicPacks;
 	static std::vector<fs::path> s_bundledGraphicPackDirectories;
+	static std::atomic<float> s_windowCropAspectRatio = 0.0f;
 
 #ifdef ENABLE_VULKAN
 	static std::mutex s_submitMutex;
@@ -132,6 +133,16 @@ namespace HostModule
 	{
 		if (!LaunchSettings::GetLoadFile() && !LaunchSettings::GetLoadTitleID())
 			LaunchSettings::SetLoadTitleID(titleId);
+	}
+
+	void CropWindowToAspectRatio(float aspectRatio)
+	{
+		s_windowCropAspectRatio.store(aspectRatio, std::memory_order_relaxed);
+	}
+
+	float GetWindowCropAspectRatio()
+	{
+		return s_windowCropAspectRatio.load(std::memory_order_relaxed);
 	}
 
 	const std::vector<std::pair<fs::path, PackOrder>>& GetGraphicPacks()

@@ -128,6 +128,10 @@ namespace HostModule
 	// a game passed on the command line still wins
 	void BootTitleOnStart(uint64_t titleId);
 
+	// 0 shows the whole image
+	void CropWindowToAspectRatio(float aspectRatio);
+	float GetWindowCropAspectRatio();
+
 	void RegisterExternalModules();
 	void Startup();
 	void BeforeConfigLoad();
