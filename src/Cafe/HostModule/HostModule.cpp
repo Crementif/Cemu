@@ -3,6 +3,7 @@
 #include "Cafe/OS/common/OSCommon.h"
 #include "Cafe/HW/MMU/MMU.h"
 #include "config/ActiveSettings.h"
+#include "config/LaunchSettings.h"
 #include "WindowSystem.h"
 #include "Cafe/HW/Latte/Core/LatteView.h"
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
@@ -120,6 +121,12 @@ namespace HostModule
 	void SetVsyncFrequency(int32_t frequency)
 	{
 		LatteTiming_setHostModuleVsyncFrequency(frequency);
+	}
+
+	void BootTitleOnStart(uint64_t titleId)
+	{
+		if (!LaunchSettings::GetLoadFile() && !LaunchSettings::GetLoadTitleID())
+			LaunchSettings::SetLoadTitleID(titleId);
 	}
 
 	const std::vector<std::pair<fs::path, PackOrder>>& GetGraphicPacks()
