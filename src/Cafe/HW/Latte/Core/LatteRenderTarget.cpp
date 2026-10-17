@@ -927,16 +927,20 @@ void LatteRenderTarget_getScreenImageArea(sint32* x, sint32* y, sint32* width, s
 	else
 		WindowSystem::GetWindowPhysSize(w, h);
 
+	const float imageAspectRatio = (float)std::max(_currentOutputImageWidth, 1) / (float)std::max(_currentOutputImageHeight, 1);
+	const float cropAspectRatio = padView ? 0.0f : HostModule::GetWindowCropAspectRatio();
+	const float visibleAspectRatio = cropAspectRatio > 0.0f ? cropAspectRatio : imageAspectRatio;
+
 	sint32 scaledOutputX;
 	sint32 scaledOutputY;
 	if (GetConfig().fullscreen_scaling == kKeepAspectRatio)
 	{
 		// calculate maximum possible resolution with intact aspect ratio
 		scaledOutputX = w;
-		scaledOutputY = _currentOutputImageHeight * w / std::max(_currentOutputImageWidth, 1);
+		scaledOutputY = (sint32)((float)w / visibleAspectRatio);
 		if (scaledOutputY > h)
 		{
-			scaledOutputX = _currentOutputImageWidth * h / std::max(_currentOutputImageHeight, 1);
+			scaledOutputX = (sint32)((float)h * visibleAspectRatio);
 			scaledOutputY = h;
 		}
 	}
@@ -946,10 +950,18 @@ void LatteRenderTarget_getScreenImageArea(sint32* x, sint32* y, sint32* width, s
 		scaledOutputY = h;
 	}
 
-	*x = (w - scaledOutputX) / 2;
-	*y = (h - scaledOutputY) / 2;
-	*width = scaledOutputX;
-	*height = scaledOutputY;
+	// the scissor cuts off the cropped parts
+	sint32 imageOutputX = scaledOutputX;
+	sint32 imageOutputY = scaledOutputY;
+	if (cropAspectRatio > 0.0f && imageAspectRatio < cropAspectRatio)
+		imageOutputY = (sint32)((float)scaledOutputY * cropAspectRatio / imageAspectRatio);
+	else if (cropAspectRatio > 0.0f)
+		imageOutputX = (sint32)((float)scaledOutputX * imageAspectRatio / cropAspectRatio);
+
+	*x = (w - imageOutputX) / 2;
+	*y = (h - imageOutputY) / 2;
+	*width = imageOutputX;
+	*height = imageOutputY;
 	if (fullWidth)
 		*fullWidth = w;
 	if (fullHeight)
