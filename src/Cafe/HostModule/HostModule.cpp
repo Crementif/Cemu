@@ -78,6 +78,11 @@ namespace HostModule
 		WindowSystem::ShowErrorDialog(message, title);
 	}
 
+	void ShowLinkDialog(const char* title, const char* message, const char* linkLabel, const char* url)
+	{
+		WindowSystem::ShowLinkDialog(message, title, linkLabel, url);
+	}
+
 	void RegisterHLEFunction(const char* libraryName, const char* functionName, HLEFunction function)
 	{
 		osLib_addFunctionInternal(libraryName, functionName, function);
