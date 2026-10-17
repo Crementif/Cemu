@@ -18,6 +18,7 @@ public:
 
 	static std::optional<fs::path> GetLoadFile() { return s_load_game_file; }
 	static std::optional<uint64> GetLoadTitleID() {return s_load_title_id;}
+	static void SetLoadTitleID(uint64 titleId) { s_load_title_id = titleId; }
 	static std::optional<fs::path> GetMLCPath() { return s_mlc_path; }
 
 	static std::optional<bool> RenderUpsideDownEnabled() { return s_render_upside_down; }

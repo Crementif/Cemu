@@ -124,6 +124,9 @@ namespace HostModule
 	// overrides the graphic packs and Cemu's VSync setting
 	void SetVsyncFrequency(int32_t frequency);
 
+	// a game passed on the command line still wins
+	void BootTitleOnStart(uint64_t titleId);
+
 	void RegisterExternalModules();
 	void Startup();
 	void BeforeConfigLoad();
