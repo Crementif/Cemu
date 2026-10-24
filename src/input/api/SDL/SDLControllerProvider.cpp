@@ -81,29 +81,60 @@ std::vector<std::shared_ptr<ControllerBase>> SDLControllerProvider::get_controll
 	return result;
 }
 
-int SDLControllerProvider::get_index(size_t guid_index, const SDL_GUID& guid) const
+// the transport and hardware version in a controller's GUID can change while its mappings stay the same
+// only USB and Bluetooth devices fall back to a controller of the same model
+static bool is_same_controller_model(const SDL_GUID& saved, const SDL_GUID& connected)
+{
+	const auto is_usb_or_bluetooth = [](const SDL_GUID& guid)
+	{
+		return (guid.data[0] == 0x03 || guid.data[0] == 0x05) && guid.data[1] == 0;
+	};
+	if (!is_usb_or_bluetooth(saved) || !is_usb_or_bluetooth(connected))
+		return false;
+
+	uint16 saved_vendor, saved_product, saved_crc;
+	uint16 connected_vendor, connected_product, connected_crc;
+	SDL_GetJoystickGUIDInfo(saved, &saved_vendor, &saved_product, nullptr, &saved_crc);
+	SDL_GetJoystickGUIDInfo(connected, &connected_vendor, &connected_product, nullptr, &connected_crc);
+	return saved_vendor != 0 && saved_product != 0 &&
+		saved_vendor == connected_vendor && saved_product == connected_product && saved_crc == connected_crc &&
+		saved.data[14] == connected.data[14] && saved.data[15] == connected.data[15];
+}
+
+SDL_JoystickID SDLControllerProvider::get_gamepad_id(size_t guid_index, const SDL_GUID& guid) const
 {
 	size_t index = 0;
+	SDL_JoystickID alternate_id = 0;
+	sint32 alternate_count = 0;
 	int gamepad_count = 0;
 	TempState lock(SDL_LockJoysticks, SDL_UnlockJoysticks);
 	SDL_JoystickID *gamepad_ids = SDL_GetGamepads(&gamepad_count);
 	if (gamepad_ids)
 	{
-		for (size_t i = 0; i < gamepad_count; ++i)
+		for (sint32 i = 0; i < gamepad_count; ++i)
 		{
-			if (guid == SDL_GetGamepadGUIDForID(gamepad_ids[i]))
+			const auto connected_guid = SDL_GetGamepadGUIDForID(gamepad_ids[i]);
+			if (guid == connected_guid)
 			{
 				if (index == guid_index)
 				{
+					const auto id = gamepad_ids[i];
 					SDL_free(gamepad_ids);
-					return i;
+					return id;
 				}
 				++index;
+			}
+			else if (is_same_controller_model(guid, connected_guid))
+			{
+				alternate_id = gamepad_ids[i];
+				++alternate_count;
 			}
 		}
 		SDL_free(gamepad_ids);
 	}
-	return -1;
+	// exact matches take precedence, the model fallback never picks between multiple controllers
+	// or hands the profile of a second controller to the first one
+	return guid_index == 0 && index == 0 && alternate_count == 1 ? alternate_id : 0;
 }
 
 MotionSample SDLControllerProvider::motion_sample(SDL_JoystickID diid)
