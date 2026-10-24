@@ -116,6 +116,7 @@ public:
 	virtual bool has_motion() { return false; }
 	virtual MotionSample get_motion_sample() { return {}; }
 
+	virtual bool has_touchpad() { return false; }
 	virtual bool has_position() { return false; }
 	virtual glm::vec2 get_position() { return {}; }
 	virtual glm::vec2 get_prev_position() { return {}; }
