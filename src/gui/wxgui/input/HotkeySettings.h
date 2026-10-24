@@ -12,6 +12,7 @@ public:
 	static void Init(class MainWindow* mainWindow);
 
 	static void CaptureInput(wxKeyEvent& event);
+	static bool CaptureHoldableInput(wxEvent& event, bool gameWindow);
 	static void CaptureInput(const ControllerState& currentState, const ControllerState& lastState);
 
 	HotkeySettings(wxWindow* parent);
@@ -19,6 +20,10 @@ public:
 
 private:
 	inline static class MainWindow* s_mainWindow = nullptr;
+	inline static bool s_gamePadScreenKeyDown = false;
+	inline static bool s_fastForwardKeyDown = false;
+	static void ReleaseGamePadScreenKey();
+	static void ReleaseFastForwardKey();
 	static std::unordered_map<sHotkeyCfg*, std::function<void(void)>> s_cfgHotkeyToFuncMap;
 	inline static std::unordered_map<uint16, std::function<void(void)>> s_keyboardHotkeyToFuncMap{};
 	inline static std::unordered_map<uint16, std::function<void(void)>> s_controllerHotkeyToFuncMap{};
@@ -37,7 +42,8 @@ private:
 	/* helpers */
 	void SetInputHighlight(wxButton* button, bool active);
 	void CreateColumnHeaders(void);
-	void CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey);
+	void CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey, bool* toggleSetting = nullptr);
+	wxChoice* CreateBehaviorChoice(bool& toggleSetting);
 	wxString To_wxString(uKeyboardHotkey hotkey);
 	wxString To_wxString(ControllerHotkey_t hotkey);
 	bool IsValidKeycodeUp(int keycode);

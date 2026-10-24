@@ -128,6 +128,9 @@ struct wxCemuConfig
 		sHotkeyCfg toggleFastForward;
 		sHotkeyCfg exitApplication;
 		sHotkeyCfg releaseMouse;
+		sHotkeyCfg showGamePad;
+		bool showGamePadToggle = false;
+		bool fastForwardToggle = true;
 #ifdef CEMU_DEBUG_ASSERT
 		sHotkeyCfg endEmulation;
 #endif

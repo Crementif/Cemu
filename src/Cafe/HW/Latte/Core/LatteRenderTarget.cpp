@@ -991,18 +991,19 @@ void LatteRenderTarget_itHLECopyColorBufferToScanBuffer(MPTR colorBufferPtr, uin
 		return {pressed && !toggle, pressed && toggle};
 	};
 
-	const bool tabPressed = !WindowSystem::GetWindowInfo().is_hidkeyboardopen() && WindowSystem::IsKeyDown(WindowSystem::PlatformKeyCodes::TAB);
-	const bool ctrlPressed = WindowSystem::IsKeyDown(WindowSystem::PlatformKeyCodes::LCONTROL);
+	auto& windowInfo = WindowSystem::GetWindowInfo();
+	const bool screenHeld = !windowInfo.is_hidkeyboardopen() && windowInfo.pad_screen_held;
 	const auto [vpad0Active, vpad0Toggle] = getVPADScreenActive(0);
 	const auto [vpad1Active, vpad1Toggle] = getVPADScreenActive(1);
 
-	const bool altScreenRequested = (!ctrlPressed && tabPressed) || vpad0Active || vpad1Active;
-	const bool togglePressed = (ctrlPressed && tabPressed) || vpad0Toggle || vpad1Toggle;
+	const bool altScreenRequested = screenHeld || vpad0Active || vpad1Active;
+	const bool togglePressed = vpad0Toggle || vpad1Toggle;
 	static bool togglePressedLast = false;
 
 	bool& isDRCPrimary = LatteGPUState.isDRCPrimary;
 
-	if(togglePressed && !togglePressedLast)
+	const bool keyboardToggle = windowInfo.pad_screen_toggle_requested.exchange(false) && !windowInfo.is_hidkeyboardopen();
+	if(keyboardToggle || (togglePressed && !togglePressedLast))
 		isDRCPrimary = !isDRCPrimary;
 	togglePressedLast = togglePressed;
 

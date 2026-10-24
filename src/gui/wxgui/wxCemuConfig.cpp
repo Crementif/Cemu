@@ -117,6 +117,9 @@ void wxCemuConfig::Load(XMLConfigParser& parser)
 	hotkeys.toggleFastForward = xml_hotkeys.get("ToggleFastForward", sHotkeyCfg{});
 	hotkeys.exitApplication = xml_hotkeys.get("ExitApplication", sHotkeyCfg{});
 	hotkeys.releaseMouse = xml_hotkeys.get("ReleaseMouse", sHotkeyCfg{uKeyboardHotkey{WXK_F8}});
+	hotkeys.showGamePad = xml_hotkeys.get("ShowGamePad", sHotkeyCfg{uKeyboardHotkey{WXK_TAB}});
+	hotkeys.showGamePadToggle = xml_hotkeys.get("ShowGamePadToggle", false);
+	hotkeys.fastForwardToggle = xml_hotkeys.get("FastForwardToggle", true);
 #ifdef CEMU_DEBUG_ASSERT
 	hotkeys.endEmulation = xml_hotkeys.get("EndEmulation", sHotkeyCfg{uKeyboardHotkey{WXK_F5}});
 #endif
@@ -189,4 +192,7 @@ void wxCemuConfig::Save(XMLConfigParser& config)
 	xml_hotkeys.set("ToggleFastForward", hotkeys.toggleFastForward);
 	xml_hotkeys.set("ExitApplication", hotkeys.exitApplication);
 	xml_hotkeys.set("ReleaseMouse", hotkeys.releaseMouse);
+	xml_hotkeys.set("ShowGamePad", hotkeys.showGamePad);
+	xml_hotkeys.set("ShowGamePadToggle", hotkeys.showGamePadToggle);
+	xml_hotkeys.set("FastForwardToggle", hotkeys.fastForwardToggle);
 }

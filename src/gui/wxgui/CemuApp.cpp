@@ -499,6 +499,9 @@ int CemuApp::FilterEvent(wxEvent& event)
 			g_window_info.set_keystatesup();
 	}
 
+	if (HotkeySettings::CaptureHoldableInput(event, IsGameWindowEvent(event)))
+		return Event_Processed;
+
 	// track if debugger window or its child windows are focused
 	if (s_debuggerWindow && (event.GetEventType() == wxEVT_SET_FOCUS || event.GetEventType() == wxEVT_ACTIVATE))
 	{
