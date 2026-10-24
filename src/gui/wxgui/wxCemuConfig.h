@@ -127,7 +127,8 @@ struct wxCemuConfig
 		sHotkeyCfg takeScreenshot;
 		sHotkeyCfg toggleFastForward;
 		sHotkeyCfg exitApplication;
-		sHotkeyCfg releaseMouse;
+		sHotkeyCfg toggleUSBMouse;
+		sHotkeyCfg toggleUSBKeyboard;
 		sHotkeyCfg showGamePad;
 		bool showGamePadToggle = false;
 		bool fastForwardToggle = true;

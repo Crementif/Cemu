@@ -1,5 +1,7 @@
 #include "wxgui/input/InputSettings2.h"
 #include "wxgui/input/HotkeySettings.h"
+#include "wxgui/MainWindow.h"
+#include "gui/interface/WindowSystem.h"
 
 #include <wx/gbsizer.h>
 
@@ -97,6 +99,26 @@ InputSettings2::InputSettings2(wxWindow* parent, bool show_hotkeys)
 	m_low_battery = wxHelper::LoadThemedBitmapFromPNG(INPUT_LOW_BATTERY_png, sizeof(INPUT_LOW_BATTERY_png), wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
 
 	auto* sizer = new wxBoxSizer(wxVERTICAL);
+
+	// usb input notice
+	m_usb_input_notice = new wxPanel(this);
+	auto* notice_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+	m_usb_input_text = new wxStaticText(m_usb_input_notice, wxID_ANY, wxEmptyString);
+	notice_sizer->Add(m_usb_input_text, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+
+	auto* turn_off_button = new wxButton(m_usb_input_notice, wxID_ANY, _("Turn off USB mouse and keyboard"));
+	turn_off_button->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
+	{
+		g_mainFrame->SetUSBMouseEnabled(false);
+		g_mainFrame->SetUSBKeyboardEnabled(false);
+		update_usb_input_notice();
+	});
+	notice_sizer->Add(turn_off_button, 0, wxALIGN_CENTER_VERTICAL);
+
+	m_usb_input_notice->SetSizer(notice_sizer);
+	m_usb_input_notice->Hide();
+	sizer->Add(m_usb_input_notice, 0, wxEXPAND | wxALL, FromDIP(8));
 
 	m_notebook = new wxNotebook(this, wxID_ANY);
 	for(size_t i = 0; i < InputManager::kMaxController; ++i)
@@ -380,6 +402,31 @@ bool InputSettings2::has_settings(InputAPI::Type type)
 	}
 }
 
+// the game using the USB mouse or keyboard pauses the inputs mapped here
+void InputSettings2::update_usb_input_notice()
+{
+	auto& window_info = WindowSystem::GetWindowInfo();
+	const bool mouse = window_info.hid_mouse_active;
+	const bool keyboard = window_info.is_hidkeyboardopen();
+
+	wxString text;
+	if (mouse && keyboard)
+		text = _("The game is using the USB mouse and keyboard, which pauses mouse touch, mouse motion, keyboard controls and hotkeys.");
+	else if (mouse)
+		text = _("The game is using the USB mouse, which pauses mouse touch and mouse motion.");
+	else if (keyboard)
+		text = _("The game is using the USB keyboard, which pauses keyboard controls and hotkeys.");
+
+	const bool show = !text.empty();
+	if (m_usb_input_notice->IsShown() == show && m_usb_input_text->GetLabel() == text)
+		return;
+
+	m_usb_input_text->SetLabel(text);
+	m_usb_input_notice->Show(show);
+	Layout();
+	Fit();
+}
+
 void InputSettings2::update_state()
 {
 	if (m_notebook->GetSelection() == kHotkeyPage)
@@ -562,6 +609,7 @@ void InputSettings2::on_notebook_page_changed(wxBookCtrlEvent& event)
 
 void InputSettings2::on_timer(wxTimerEvent&)
 {
+	update_usb_input_notice();
 	if (m_notebook->GetSelection() == kHotkeyPage)
 		return;
 	auto& page_data = get_current_page_data();

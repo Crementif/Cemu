@@ -1,4 +1,6 @@
 #include "EmulatedUSBDeviceFrame.h"
+#include "wxgui/MainWindow.h"
+#include "wxgui/input/InputSettings2.h"
 
 #include <algorithm>
 
@@ -19,6 +21,7 @@
 #include <wx/combobox.h>
 #include <wx/filedlg.h>
 #include <wx/log.h>
+#include <wx/hyperlink.h>
 #include <wx/msgdlg.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
@@ -43,11 +46,12 @@ EmulatedUSBDeviceFrame::EmulatedUSBDeviceFrame(wxWindow* parent)
 
 	auto* sizer = new wxBoxSizer(wxVERTICAL);
 	auto* notebook = new wxNotebook(this, wxID_ANY);
+	m_notebook = notebook;
 
 	notebook->AddPage(AddSkylanderPage(notebook), _("Skylanders Portal"));
 	notebook->AddPage(AddInfinityPage(notebook), _("Infinity Base"));
 	notebook->AddPage(AddDimensionsPage(notebook), _("Dimensions Toypad"));
-	notebook->AddPage(AddKeyboardMousePage(notebook), _("Keyboard and Mouse"));
+	notebook->AddPage(AddMouseKeyboardPage(notebook), _("Mouse && Keyboard"));
 
 	sizer->Add(notebook, 1, wxEXPAND | wxALL, 2);
 
@@ -57,6 +61,11 @@ EmulatedUSBDeviceFrame::EmulatedUSBDeviceFrame(wxWindow* parent)
 }
 
 EmulatedUSBDeviceFrame::~EmulatedUSBDeviceFrame() {}
+
+void EmulatedUSBDeviceFrame::SelectPage(Page page)
+{
+	m_notebook->SetSelection(static_cast<size_t>(page));
+}
 
 wxPanel* EmulatedUSBDeviceFrame::AddSkylanderPage(wxNotebook* notebook)
 {
@@ -124,37 +133,64 @@ wxPanel* EmulatedUSBDeviceFrame::AddInfinityPage(wxNotebook* notebook)
 	return panel;
 }
 
-wxPanel* EmulatedUSBDeviceFrame::AddKeyboardMousePage(wxNotebook* notebook)
+wxPanel* EmulatedUSBDeviceFrame::AddMouseKeyboardPage(wxNotebook* notebook)
 {
 	auto* panel = new wxPanel(notebook);
 	auto* panelSizer = new wxBoxSizer(wxVERTICAL);
+	auto* description = new wxStaticText(panel, wxID_ANY,
+		_("Sends input directly to games and homebrew that support USB mice or keyboards."));
+	description->Wrap(FromDIP(480));
+	panelSizer->Add(description, 0, wxALL, 8);
 
-	auto* keyboardBox = new wxStaticBox(panel, wxID_ANY, _("USB Keyboard"));
-	auto* keyboardSizer = new wxStaticBoxSizer(keyboardBox, wxVERTICAL);
-	m_emulateKeyboard = new wxCheckBox(keyboardBox, wxID_ANY, _("Emulate USB Keyboard"));
-	m_emulateKeyboard->SetValue(GetConfig().emulated_usb_devices.emulate_keyboard);
-	m_emulateKeyboard->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
-		GetConfig().emulated_usb_devices.emulate_keyboard = m_emulateKeyboard->IsChecked();
-		GetConfigHandle().Save();
-		nsyshid::UpdateEmulatedDevices();
-	});
-	keyboardSizer->Add(m_emulateKeyboard, 0, wxEXPAND | wxALL, 2);
-	keyboardSizer->Add(new wxStaticText(keyboardBox, wxID_ANY, _("Keys typed into the game window are sent to the emulated keyboard.\nKeys bound to an emulated controller are sent as well.")), 0, wxEXPAND | wxALL, 2);
-	panelSizer->Add(keyboardSizer, 0, wxEXPAND | wxALL, 2);
-
-	auto* mouseBox = new wxStaticBox(panel, wxID_ANY, _("USB Mouse"));
-	auto* mouseSizer = new wxStaticBoxSizer(mouseBox, wxVERTICAL);
-	m_emulateMouse = new wxCheckBox(mouseBox, wxID_ANY, _("Emulate USB Mouse"));
+	// the hotkeys and the USB Devices menu can change these too
+	m_emulateMouse = new wxCheckBox(panel, wxID_ANY, MainWindow::GetUSBMouseLabel());
 	m_emulateMouse->SetValue(GetConfig().emulated_usb_devices.emulate_mouse);
 	m_emulateMouse->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
-		GetConfig().emulated_usb_devices.emulate_mouse = m_emulateMouse->IsChecked();
-		GetConfigHandle().Save();
-		nsyshid::UpdateEmulatedDevices();
+		static_cast<MainWindow*>(GetParent())->SetUSBMouseEnabled(m_emulateMouse->IsChecked());
 	});
-	mouseSizer->Add(m_emulateMouse, 0, wxEXPAND | wxALL, 2);
-	mouseSizer->Add(new wxStaticText(mouseBox, wxID_ANY, _("Click into the game window to capture the mouse while a game uses it.\nThe mouse is released with the \"Release mouse\" hotkey or when the window loses focus.")), 0, wxEXPAND | wxALL, 2);
-	panelSizer->Add(mouseSizer, 0, wxEXPAND | wxALL, 2);
+	m_emulateMouse->Bind(wxEVT_UPDATE_UI, [](wxUpdateUIEvent& event)
+	{
+		event.Check(GetConfig().emulated_usb_devices.emulate_mouse);
+		event.SetText(MainWindow::GetUSBMouseLabel());
+	});
+	panelSizer->Add(m_emulateMouse, 0, wxEXPAND | wxALL, 2);
+	panelSizer->Add(new wxStaticText(panel, wxID_ANY,
+		_("Once the game uses the USB mouse, click its window to capture it.\nTurn this off to restore mouse touch and motion.")), 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
+	m_emulateKeyboard = new wxCheckBox(panel, wxID_ANY, MainWindow::GetUSBKeyboardLabel());
+	m_emulateKeyboard->SetValue(GetConfig().emulated_usb_devices.emulate_keyboard);
+	m_emulateKeyboard->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+		static_cast<MainWindow*>(GetParent())->SetUSBKeyboardEnabled(m_emulateKeyboard->IsChecked());
+	});
+	m_emulateKeyboard->Bind(wxEVT_UPDATE_UI, [](wxUpdateUIEvent& event)
+	{
+		event.Check(GetConfig().emulated_usb_devices.emulate_keyboard);
+		event.SetText(MainWindow::GetUSBKeyboardLabel());
+	});
+	panelSizer->Add(m_emulateKeyboard, 0, wxEXPAND | wxALL, 2);
+	panelSizer->Add(new wxStaticText(panel, wxID_ANY,
+		_("Keyboard controls and hotkeys are paused while the game uses the keyboard.\nThe USB mouse and keyboard hotkeys still work.")), 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+
+	auto* hotkeyLink = new wxHyperlinkCtrl(panel, wxID_ANY, _("Change hotkeys"), wxEmptyString);
+	hotkeyLink->Bind(wxEVT_HYPERLINK, [this](wxHyperlinkEvent&)
+	{
+		auto* settings = new InputSettings2(this, true);
+		settings->ShowModal();
+		settings->Destroy();
+	});
+	panelSizer->Add(hotkeyLink, 0, wxALL, 8);
+
+	auto* mappingSizer = new wxBoxSizer(wxHORIZONTAL);
+	mappingSizer->Add(new wxStaticText(panel, wxID_ANY, _("For GamePad button mappings:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+	auto* inputLink = new wxHyperlinkCtrl(panel, wxID_ANY, _("Input settings"), wxEmptyString);
+	inputLink->Bind(wxEVT_HYPERLINK, [this](wxHyperlinkEvent&)
+	{
+		auto* settings = new InputSettings2(this);
+		settings->ShowModal();
+		settings->Destroy();
+	});
+	mappingSizer->Add(inputLink, 0, wxALIGN_CENTER_VERTICAL);
+	panelSizer->Add(mappingSizer, 0, wxALL, 8);
 	panel->SetSizerAndFit(panelSizer);
 
 	return panel;

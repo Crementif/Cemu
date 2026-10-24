@@ -143,6 +143,7 @@ namespace WindowSystem
 
 		// set by the emulated USB mouse once a title reads from it, the game window only captures the mouse then
 		std::atomic_bool hid_mouse_active = false;
+		std::atomic_bool hid_mouse_captured = false;
 
 		void add_hidmousemotion(sint32 deltaX, sint32 deltaY, sint32 wheel)
 		{

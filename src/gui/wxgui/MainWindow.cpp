@@ -59,6 +59,8 @@
 
 //Cafe libs
 #include "Cafe/OS/libs/nfc/nfc.h"
+#include "Cafe/OS/libs/nsyshid/nsyshid.h"
+#include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/OS/libs/swkbd/swkbd.h"
 
 #include "Cafe/HW/Latte/Renderer/Renderer.h" // For renderer API checks
@@ -113,7 +115,13 @@ enum
 	MAINFRAME_MENU_ID_TOOLS_MEMORY_SEARCHER = 20600,
 	MAINFRAME_MENU_ID_TOOLS_TITLE_MANAGER,
 	MAINFRAME_MENU_ID_TOOLS_DOWNLOAD_MANAGER,
-	MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES,
+	// usb devices
+	MAINFRAME_MENU_ID_USB_KEYBOARD,
+	MAINFRAME_MENU_ID_USB_MOUSE,
+	MAINFRAME_MENU_ID_USB_SKYLANDERS,
+	MAINFRAME_MENU_ID_USB_INFINITY,
+	MAINFRAME_MENU_ID_USB_DIMENSIONS,
+	MAINFRAME_MENU_ID_USB_SETTINGS,
 	// cpu
 	// cpu->timer speed
 	MAINFRAME_MENU_ID_TIMER_SPEED_1X = 20700,
@@ -199,7 +207,9 @@ EVT_MENU(MAINFRAME_MENU_ID_OPTIONS_MAC_SETTINGS, MainWindow::OnOptionsInput)
 EVT_MENU(MAINFRAME_MENU_ID_TOOLS_MEMORY_SEARCHER, MainWindow::OnToolsInput)
 EVT_MENU(MAINFRAME_MENU_ID_TOOLS_TITLE_MANAGER, MainWindow::OnToolsInput)
 EVT_MENU(MAINFRAME_MENU_ID_TOOLS_DOWNLOAD_MANAGER, MainWindow::OnToolsInput)
-EVT_MENU(MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES, MainWindow::OnToolsInput)
+// usb devices menu
+EVT_MENU_RANGE(MAINFRAME_MENU_ID_USB_KEYBOARD, MAINFRAME_MENU_ID_USB_SETTINGS, MainWindow::OnUSBDevicesInput)
+EVT_UPDATE_UI_RANGE(MAINFRAME_MENU_ID_USB_KEYBOARD, MAINFRAME_MENU_ID_USB_MOUSE, MainWindow::OnUSBDevicesUpdateUI)
 // cpu menu
 EVT_MENU(MAINFRAME_MENU_ID_TIMER_SPEED_8X, MainWindow::OnDebugSetting)
 EVT_MENU(MAINFRAME_MENU_ID_TIMER_SPEED_4X, MainWindow::OnDebugSetting)
@@ -1292,9 +1302,11 @@ void MainWindow::SetMouseCaptured(bool state)
 {
 	if (m_mouse_captured == state)
 		return;
-	if (state && (!m_render_canvas || !g_window_info.hid_mouse_active))
+	if (state && (!m_render_canvas || !g_window_info.hid_mouse_active || !GetConfig().emulated_usb_devices.emulate_mouse))
 		return;
 	m_mouse_captured = state;
+	InputManager::instance().reset_mouse_input();
+	g_window_info.hid_mouse_captured = state;
 	#if BOOST_OS_WINDOWS
 	RAWINPUTDEVICE device{};
 	device.usUsagePage = 0x01; // generic desktop
@@ -1319,6 +1331,7 @@ void MainWindow::SetMouseCaptured(bool state)
 		#endif
 		ClipCapturedMouse();
 		ShowCursor(false);
+		ShowUSBInputNotice();
 	}
 	else
 	{
@@ -1692,34 +1705,168 @@ void MainWindow::OnToolsInput(wxCommandEvent& event)
 		}
 		break;
 	}
-	case MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES:
+	}
+}
+
+void MainWindow::SetUSBMouseEnabled(bool enabled)
+{
+	if (GetConfig().emulated_usb_devices.emulate_mouse == enabled)
+		return;
+	GetConfig().emulated_usb_devices.emulate_mouse = enabled;
+	if (!enabled)
+		SetMouseCaptured(false);
+	GetConfigHandle().Save();
+	nsyshid::UpdateEmulatedDevices();
+	if (enabled)
+		ShowUSBInputNotice();
+	else if (m_game_launched)
+		LatteOverlay_pushNotification(_tr("USB mouse off. Mouse controls restored."), 4000);
+}
+
+void MainWindow::SetUSBKeyboardEnabled(bool enabled)
+{
+	if (GetConfig().emulated_usb_devices.emulate_keyboard == enabled)
+		return;
+	GetConfig().emulated_usb_devices.emulate_keyboard = enabled;
+	GetConfigHandle().Save();
+	nsyshid::UpdateEmulatedDevices();
+	if (enabled)
+		ShowUSBInputNotice();
+	else if (m_game_launched)
+		LatteOverlay_pushNotification(_tr("USB keyboard off."), 3000);
+}
+
+// like "Emulate mouse [F8]"
+static wxString GetLabelWithHotkey(const wxString& label, const sHotkeyCfg& hotkey)
+{
+	if (hotkey.keyboard.raw == sHotkeyCfg::keyboardNone)
+		return label;
+	return formatWxString("{} [{}]", label.utf8_string(), HotkeySettings::To_wxString(hotkey.keyboard).utf8_string());
+}
+
+wxString MainWindow::GetUSBMouseLabel()
+{
+	return GetLabelWithHotkey(_("Emulate mouse"), GetWxGUIConfig().hotkeys.toggleUSBMouse);
+}
+
+wxString MainWindow::GetUSBKeyboardLabel()
+{
+	return GetLabelWithHotkey(_("Emulate keyboard"), GetWxGUIConfig().hotkeys.toggleUSBKeyboard);
+}
+
+void MainWindow::OnUSBDevicesUpdateUI(wxUpdateUIEvent& event)
+{
+	const auto& config = GetConfig().emulated_usb_devices;
+	if (event.GetId() == MAINFRAME_MENU_ID_USB_MOUSE)
 	{
-		if (m_usb_devices)
-		{
-			m_usb_devices->Show(true);
-			m_usb_devices->Raise();
-			m_usb_devices->SetFocus();
-		}
-		else
-		{
-			m_usb_devices = new EmulatedUSBDeviceFrame(this);
-			m_usb_devices->Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& event)
+		event.Check(config.emulate_mouse);
+		event.SetText(GetUSBMouseLabel());
+	}
+	else
+	{
+		event.Check(config.emulate_keyboard);
+		event.SetText(GetUSBKeyboardLabel());
+	}
+}
+
+static std::string GetTurnOffHint(const sHotkeyCfg& hotkey)
+{
+	return _tr("{} to turn off.", HotkeySettings::To_wxString(hotkey.keyboard).utf8_string());
+}
+
+// the USB mouse and keyboard take over the regular mouse and keyboard controls, so the notice says how to turn them off
+void MainWindow::ShowUSBInputNotice(bool brief)
+{
+	const auto& config = GetConfig().emulated_usb_devices;
+	if (!m_game_launched || (!config.emulate_mouse && !config.emulate_keyboard))
+		return;
+
+	// brief reminders come from key presses, so they're rate limited
+	const auto now = std::chrono::steady_clock::now();
+	if (brief && now - m_last_usb_input_notice < std::chrono::seconds(3))
+		return;
+	m_last_usb_input_notice = now;
+
+	std::string text;
+	auto addLine = [&text](const std::string& line)
+	{
+		if (!text.empty())
+			text += "\n";
+		text += line;
+	};
+
+	const auto& hotkeys = GetWxGUIConfig().hotkeys;
+	const bool hasMouseHotkey = hotkeys.toggleUSBMouse.keyboard.raw != sHotkeyCfg::keyboardNone;
+	const bool hasKeyboardHotkey = hotkeys.toggleUSBKeyboard.keyboard.raw != sHotkeyCfg::keyboardNone;
+
+	if (config.emulate_mouse)
+	{
+		const std::string status = m_mouse_captured ? _tr("Mouse captured.") : _tr("USB mouse on.");
+		addLine(hasMouseHotkey ? status + " " + GetTurnOffHint(hotkeys.toggleUSBMouse) : status);
+		if (m_mouse_captured && !brief)
+			addLine(_tr("Mouse touch and motion paused."));
+	}
+	if (config.emulate_keyboard)
+	{
+		const std::string status = g_window_info.is_hidkeyboardopen() ? _tr("USB keyboard in use. Keyboard controls paused.") : _tr("USB keyboard on.");
+		addLine(hasKeyboardHotkey ? status + " " + GetTurnOffHint(hotkeys.toggleUSBKeyboard) : status);
+	}
+	if ((config.emulate_mouse && !hasMouseHotkey) || (config.emulate_keyboard && !hasKeyboardHotkey))
+		addLine(_tr("Turn off in USB Devices."));
+
+	LatteOverlay_pushNotification(text, brief ? 3000 : 6000);
+}
+
+void MainWindow::OnUSBDevicesInput(wxCommandEvent& event)
+{
+	const int id = event.GetId();
+	if (id == MAINFRAME_MENU_ID_USB_MOUSE)
+	{
+		SetUSBMouseEnabled(event.IsChecked());
+		return;
+	}
+	if (id == MAINFRAME_MENU_ID_USB_KEYBOARD)
+	{
+		SetUSBKeyboardEnabled(event.IsChecked());
+		return;
+	}
+
+	if (!m_usb_devices)
+	{
+		m_usb_devices = new EmulatedUSBDeviceFrame(this);
+		m_usb_devices->Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& event)
+			{
+				if (event.CanVeto())
 				{
-					if (event.CanVeto()) {
-						m_usb_devices->Show(false);
-						event.Veto();
-					}
-					else {
-						m_usb_devices = nullptr;
-						event.Skip();
-					}
-				});
-			m_usb_devices->Show(true);
-		}
+					m_usb_devices->Show(false);
+					event.Veto();
+				}
+				else
+				{
+					m_usb_devices = nullptr;
+					event.Skip();
+				}
+			});
+	}
+
+	switch (id)
+	{
+	case MAINFRAME_MENU_ID_USB_SETTINGS:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::MouseKeyboard);
+		break;
+	case MAINFRAME_MENU_ID_USB_SKYLANDERS:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::Skylanders);
+		break;
+	case MAINFRAME_MENU_ID_USB_INFINITY:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::Infinity);
+		break;
+	case MAINFRAME_MENU_ID_USB_DIMENSIONS:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::Dimensions);
 		break;
 	}
-	break;
-	}
+	m_usb_devices->Show(true);
+	m_usb_devices->Raise();
+	m_usb_devices->SetFocus();
 }
 
 void MainWindow::OnGesturePan(wxPanGestureEvent& event)
@@ -1738,6 +1885,7 @@ void MainWindow::OnGesturePan(wxPanGestureEvent& event)
 
 void MainWindow::OnGameLoaded()
 {
+	CallAfter([this]() { ShowUSBInputNotice(); });
 	if (m_debugger_window)
 		m_debugger_window->OnGameLoaded();
 }
@@ -2051,6 +2199,12 @@ void MainWindow::OnTimer(wxTimerEvent& event)
 
 		m_update_available = {};
 	}
+
+	// the notice also shows when the game opens the USB keyboard
+	const bool usbKeyboardOpen = g_window_info.is_hidkeyboardopen();
+	if (usbKeyboardOpen && !m_usb_keyboard_open)
+		ShowUSBInputNotice();
+	m_usb_keyboard_open = usbKeyboardOpen;
 
 	if (m_mouse_captured)
 	{
@@ -2469,9 +2623,19 @@ void MainWindow::RecreateMenu()
 	m_memorySearcherMenuItem->Enable(false);
 	toolsMenu->Append(MAINFRAME_MENU_ID_TOOLS_TITLE_MANAGER, _("&Title Manager"));
 	toolsMenu->Append(MAINFRAME_MENU_ID_TOOLS_DOWNLOAD_MANAGER, _("&Download Manager"));
-	toolsMenu->Append(MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES, _("&Emulated USB Devices"));
 
 	m_menuBar->Append(toolsMenu, _("&Tools"));
+
+	// usb devices submenu
+	auto* usbDevicesMenu = new wxMenu();
+	usbDevicesMenu->AppendCheckItem(MAINFRAME_MENU_ID_USB_MOUSE, GetUSBMouseLabel());
+	usbDevicesMenu->AppendCheckItem(MAINFRAME_MENU_ID_USB_KEYBOARD, GetUSBKeyboardLabel());
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_SETTINGS, _("More &settings..."));
+	usbDevicesMenu->AppendSeparator();
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_SKYLANDERS, _("&Skylanders Portal"));
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_INFINITY, _("&Infinity Base"));
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_DIMENSIONS, _("&Dimensions Toypad"));
+	m_menuBar->Append(usbDevicesMenu, _("&USB Devices"));
 
 	// cpu timer speed menu
 	wxMenu* timerSpeedMenu = new wxMenu();

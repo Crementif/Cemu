@@ -163,7 +163,8 @@ HotkeySettings::HotkeySettings(wxWindow* parent)
 	CreateHotkeyRow(_tr("End emulation"), s_cfgHotkeys.endEmulation);
 #endif
 	CreateHotkeyRow(_tr("Exit application"), s_cfgHotkeys.exitApplication);
-	CreateHotkeyRow(_tr("Release mouse"), s_cfgHotkeys.releaseMouse);
+	CreateHotkeyRow(_tr("Emulate USB mouse"), s_cfgHotkeys.toggleUSBMouse);
+	CreateHotkeyRow(_tr("Emulate USB keyboard"), s_cfgHotkeys.toggleUSBKeyboard);
 
 	Bind(wxEVT_SHOW, [this](wxShowEvent& event)
 	{
@@ -221,8 +222,11 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 			closeEvent->SetCanVeto(false);
 			wxQueueEvent(s_mainWindow, closeEvent);
 		 }},
-		{&s_cfgHotkeys.releaseMouse, [](void) {
-			 s_mainWindow->SetMouseCaptured(false);
+		{&s_cfgHotkeys.toggleUSBMouse, [](void) {
+			 s_mainWindow->CallAfter([]() { s_mainWindow->SetUSBMouseEnabled(!GetConfig().emulated_usb_devices.emulate_mouse); });
+		 }},
+		{&s_cfgHotkeys.toggleUSBKeyboard, [](void) {
+			 s_mainWindow->CallAfter([]() { s_mainWindow->SetUSBKeyboardEnabled(!GetConfig().emulated_usb_devices.emulate_keyboard); });
 		 }},
 #ifdef CEMU_DEBUG_ASSERT
 		{&s_cfgHotkeys.endEmulation, [](void) {
@@ -512,7 +516,7 @@ bool HotkeySettings::IsValidKeycodeUp(int keycode)
 wxString HotkeySettings::To_wxString(uKeyboardHotkey hotkey)
 {
 	if (hotkey.raw == sHotkeyCfg::keyboardNone) {
-		return m_disabledHotkeyText;
+		return _("Not set");
 	}
 	wxString ret{};
 	if (hotkey.alt)
@@ -534,7 +538,7 @@ wxString HotkeySettings::To_wxString(uKeyboardHotkey hotkey)
 wxString HotkeySettings::To_wxString(ControllerHotkey_t hotkey)
 {
 	if ((hotkey == sHotkeyCfg::controllerNone) || m_activeController.expired()) {
-		return m_disabledHotkeyText;
+		return _("Not set");
 	}
 	return m_activeController.lock()->get_button_name(hotkey);
 }
@@ -618,6 +622,21 @@ bool HotkeySettings::CaptureHoldableInput(wxEvent& event, bool gameWindow)
 		}
 		s_fastForwardKeyDown = true;
 		return true;
+	}
+	return false;
+}
+
+// the USB mouse and keyboard hotkeys keep working while the game uses the USB keyboard
+bool HotkeySettings::CaptureUSBInput(const wxKeyEvent& event)
+{
+	const uKeyboardHotkey hotkey = GetKeyboardHotkey(event);
+	for (auto* cfgHotkey : {&s_cfgHotkeys.toggleUSBMouse, &s_cfgHotkeys.toggleUSBKeyboard})
+	{
+		if (cfgHotkey->keyboard.raw == hotkey.raw)
+		{
+			s_cfgHotkeyToFuncMap.at(cfgHotkey)();
+			return true;
+		}
 	}
 	return false;
 }

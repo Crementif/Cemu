@@ -10,6 +10,8 @@
 
 struct ControllerPage;
 class ControllerBase;
+class wxStaticText;
+class wxPanel;
 
 class InputSettings2 : public wxDialog
 {
@@ -23,6 +25,8 @@ private:
 
 	wxNotebook* m_notebook;
 	wxTimer* m_timer;
+	wxPanel* m_usb_input_notice;
+	wxStaticText* m_usb_input_text;
 
 	wxBitmap m_low_battery;
 
@@ -34,6 +38,7 @@ private:
 	bool has_settings(InputAPI::Type type);
 	ControllerPage& get_current_page_data() const;
 	void update_state();
+	void update_usb_input_notice();
 
 	boost::signals2::connection m_controller_changed;
 	void on_controller_changed();

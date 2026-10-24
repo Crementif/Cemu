@@ -473,6 +473,42 @@ static bool IsGameWindowEvent(const wxEvent& event)
 	return topLevelWindow == g_mainFrame || topLevelWindow == g_mainFrame->GetPadView();
 }
 
+// the USB mouse and keyboard hotkeys always work in the game windows, other keys only reach the USB keyboard while the game uses it
+static bool FilterUSBInputEvent(wxEvent& event)
+{
+	const auto type = event.GetEventType();
+	if (type == wxEVT_KEY_UP)
+	{
+		const auto& keyEvent = static_cast<wxKeyEvent&>(event);
+		if (HotkeySettings::CaptureUSBInput(keyEvent))
+			return true;
+
+		// escape doesn't release the USB mouse or keyboard, so it reminds the player how to turn them off
+		const bool usbInputActive = g_window_info.is_hidkeyboardopen() || g_window_info.hid_mouse_captured;
+		if (keyEvent.GetKeyCode() == WXK_ESCAPE && usbInputActive && !swkbd_hasKeyboardInputHook())
+		{
+			g_mainFrame->ShowUSBInputNotice(true);
+			return true;
+		}
+	}
+
+	if (!g_window_info.is_hidkeyboardopen())
+		return false;
+
+	if (type == wxEVT_CHAR_HOOK)
+	{
+		// the USB keyboard reads the key down event that follows
+		static_cast<wxKeyEvent&>(event).DoAllowNextEvent();
+		return true;
+	}
+	if (type == wxEVT_KEY_UP || type == wxEVT_NAVIGATION_KEY)
+		return true;
+	// the swkbd overlay still needs to receive typed keys
+	if (type == wxEVT_KEY_DOWN || type == wxEVT_CHAR)
+		return !swkbd_hasKeyboardInputHook();
+	return false;
+}
+
 int CemuApp::FilterEvent(wxEvent& event)
 {
 	if(event.GetEventType() == wxEVT_KEY_DOWN)
@@ -500,6 +536,9 @@ int CemuApp::FilterEvent(wxEvent& event)
 	}
 
 	if (HotkeySettings::CaptureHoldableInput(event, IsGameWindowEvent(event)))
+		return Event_Processed;
+
+	if (IsGameWindowEvent(event) && FilterUSBInputEvent(event))
 		return Event_Processed;
 
 	// track if debugger window or its child windows are focused

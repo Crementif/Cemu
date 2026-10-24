@@ -20,11 +20,21 @@ class wxTextCtrl;
 class EmulatedUSBDeviceFrame : public wxFrame
 {
   public:
+	enum class Page
+	{
+		Skylanders,
+		Infinity,
+		Dimensions,
+		MouseKeyboard,
+	};
+
 	EmulatedUSBDeviceFrame(wxWindow* parent);
 	~EmulatedUSBDeviceFrame();
+	void SelectPage(Page page);
 	std::array<std::optional<uint32>, 7> GetCurrentMinifigs();
 
   private:
+	wxNotebook* m_notebook;
 	wxCheckBox* m_emulatePortal;
 	wxCheckBox* m_emulateBase;
 	wxCheckBox* m_emulateToypad;
@@ -39,7 +49,7 @@ class EmulatedUSBDeviceFrame : public wxFrame
 	wxPanel* AddSkylanderPage(wxNotebook* notebook);
 	wxPanel* AddInfinityPage(wxNotebook* notebook);
 	wxPanel* AddDimensionsPage(wxNotebook* notebook);
-	wxPanel* AddKeyboardMousePage(wxNotebook* notebook);
+	wxPanel* AddMouseKeyboardPage(wxNotebook* notebook);
 	wxBoxSizer* AddSkylanderRow(uint8 row_number, wxStaticBox* box);
 	wxBoxSizer* AddInfinityRow(wxString name, uint8 row_number, wxStaticBox* box);
 	wxBoxSizer* AddDimensionPanel(uint8 pad, uint8 index, wxStaticBox* box);

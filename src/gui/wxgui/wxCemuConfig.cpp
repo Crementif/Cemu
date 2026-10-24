@@ -116,7 +116,8 @@ void wxCemuConfig::Load(XMLConfigParser& parser)
 	hotkeys.takeScreenshot = xml_hotkeys.get("TakeScreenshot", sHotkeyCfg{uKeyboardHotkey{WXK_F12}});
 	hotkeys.toggleFastForward = xml_hotkeys.get("ToggleFastForward", sHotkeyCfg{});
 	hotkeys.exitApplication = xml_hotkeys.get("ExitApplication", sHotkeyCfg{});
-	hotkeys.releaseMouse = xml_hotkeys.get("ReleaseMouse", sHotkeyCfg{uKeyboardHotkey{WXK_F8}});
+	hotkeys.toggleUSBMouse = xml_hotkeys.get("ToggleUSBMouse", sHotkeyCfg{uKeyboardHotkey{WXK_F8}});
+	hotkeys.toggleUSBKeyboard = xml_hotkeys.get("ToggleUSBKeyboard", sHotkeyCfg{});
 	hotkeys.showGamePad = xml_hotkeys.get("ShowGamePad", sHotkeyCfg{uKeyboardHotkey{WXK_TAB}});
 	hotkeys.showGamePadToggle = xml_hotkeys.get("ShowGamePadToggle", false);
 	hotkeys.fastForwardToggle = xml_hotkeys.get("FastForwardToggle", true);
@@ -191,7 +192,8 @@ void wxCemuConfig::Save(XMLConfigParser& config)
 	xml_hotkeys.set("TakeScreenshot", hotkeys.takeScreenshot);
 	xml_hotkeys.set("ToggleFastForward", hotkeys.toggleFastForward);
 	xml_hotkeys.set("ExitApplication", hotkeys.exitApplication);
-	xml_hotkeys.set("ReleaseMouse", hotkeys.releaseMouse);
+	xml_hotkeys.set("ToggleUSBMouse", hotkeys.toggleUSBMouse);
+	xml_hotkeys.set("ToggleUSBKeyboard", hotkeys.toggleUSBKeyboard);
 	xml_hotkeys.set("ShowGamePad", hotkeys.showGamePad);
 	xml_hotkeys.set("ShowGamePadToggle", hotkeys.showGamePadToggle);
 	xml_hotkeys.set("FastForwardToggle", hotkeys.fastForwardToggle);
