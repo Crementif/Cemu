@@ -56,7 +56,14 @@ public:
 
 	void VPADRead(VPADStatus_t& status, const BtnRepeat& repeat);
 
+	std::string get_touch_source() const;
+	void set_touch_source(std::string source);
 	void update() override;
+	bool is_motion_enabled() const { return m_motion_enabled; }
+	void set_motion_enabled(bool enabled) { m_motion_enabled = enabled; }
+	bool prefers_native_motion() const { return m_prefer_native_motion; }
+	void set_prefer_native_motion(bool prefer) { m_prefer_native_motion = prefer; }
+	std::shared_ptr<ControllerBase> get_motion_controller() const;
 
 	uint32 get_emulated_button_flag(uint32 id) const override;
 
@@ -106,5 +113,8 @@ private:
 
 	void update_touch(VPADStatus_t& status);
 	void update_motion(VPADStatus_t& status);
+	std::atomic_bool m_motion_enabled{true};
+	std::atomic_bool m_prefer_native_motion{true};
+	std::string m_touch_source; // empty picks an attached touchpad
 	glm::ivec2 m_last_touch_position{};
 };

@@ -184,6 +184,18 @@ void VPADController::update()
 	}
 }
 
+std::string VPADController::get_touch_source() const
+{
+	std::shared_lock lock(m_mutex);
+	return m_touch_source;
+}
+
+void VPADController::set_touch_source(std::string source)
+{
+	std::unique_lock lock(m_mutex);
+	m_touch_source = std::move(source);
+}
+
 void VPADController::update_touch(VPADStatus_t& status)
 {
 	status.tpData.touch = kTpTouchOff;
@@ -195,9 +207,22 @@ void VPADController::update_touch(VPADStatus_t& status)
 
 	auto& instance = InputManager::instance();
 	bool pad_view;
-	if (has_position())
+	const auto source = get_touch_source();
+	std::shared_ptr<ControllerBase> touch_controller;
+	if (source != "disabled" && source != "mouse")
 	{
-		const auto mouse = get_position();
+		for (const auto& input : get_controllers())
+		{
+			if ((source.empty() || source == input->uuid()) && input->has_position())
+			{
+				touch_controller = input;
+				break;
+			}
+		}
+	}
+	if (touch_controller)
+	{
+		const auto mouse = touch_controller->get_position();
 
 		status.tpData.touch = kTpTouchOn;
 		status.tpData.validity = kTpValid;
@@ -206,7 +231,7 @@ void VPADController::update_touch(VPADStatus_t& status)
 
 		m_last_touch_position = glm::ivec2{status.tpData.x, status.tpData.y};
 	}
-	else if (const auto left_mouse = instance.get_left_down_mouse_info(&pad_view))
+	else if (const auto left_mouse = source != "disabled" ? instance.get_left_down_mouse_info(&pad_view) : std::nullopt)
 	{
 		glm::ivec2 image_pos, image_size;
 		LatteRenderTarget_getScreenImageArea(&image_pos.x, &image_pos.y, &image_size.x, &image_size.y, nullptr, nullptr, pad_view);
@@ -236,11 +261,31 @@ void VPADController::update_touch(VPADStatus_t& status)
 	status.tpProcessed2 = status.tpData;
 }
 
+std::shared_ptr<ControllerBase> VPADController::get_motion_controller() const
+{
+	if (!m_prefer_native_motion)
+		return {};
+	std::shared_lock lock(m_mutex);
+	std::shared_ptr<ControllerBase> fallback;
+	for (const auto& controller : m_controllers)
+	{
+		if (!controller->is_connected() || !controller->has_motion())
+			continue;
+		if (controller->use_motion())
+			return controller;
+		if (!fallback || controller->api() == InputAPI::DSUClient)
+			fallback = controller;
+	}
+	return fallback;
+}
+
 void VPADController::update_motion(VPADStatus_t& status)
 {
-	if (has_motion())
+	if (!m_motion_enabled)
+		return;
+	if (auto controller = get_motion_controller())
 	{
-		auto motionSample = get_motion_data();
+		auto motionSample = controller->get_motion_sample();
 
 		glm::vec3 acc;
 		motionSample.getVPADAccelerometer(&acc[0]);
@@ -693,11 +738,17 @@ bool VPADController::set_default_mapping(const std::shared_ptr<ControllerBase>& 
 
 void VPADController::load(const pugi::xml_node& node)
 {
+	set_touch_source(node.child("touch_source").text().as_string());
+	m_motion_enabled = node.child("motion_enabled").text().as_bool(true);
+	m_prefer_native_motion = node.child("prefer_native_motion").text().as_bool(true);
 	if (const auto value = node.child("toggle_display"))
 		m_screen_active_toggle = ConvertString<bool>(value.child_value());
 }
 
 void VPADController::save(pugi::xml_node& node)
 {
+	node.append_child("touch_source").text().set(get_touch_source().c_str());
+	node.append_child("motion_enabled").text().set(m_motion_enabled.load());
+	node.append_child("prefer_native_motion").text().set(m_prefer_native_motion.load());
 	node.append_child("toggle_display").append_child(pugi::node_pcdata).set_value(fmt::format("{}", (int)m_screen_active_toggle).c_str());
 }

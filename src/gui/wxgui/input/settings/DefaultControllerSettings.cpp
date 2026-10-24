@@ -15,7 +15,7 @@
 #include "wxgui/input/InputAPIAddWindow.h"
 
 
-DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxPoint& position, std::shared_ptr<ControllerBase> controller)
+DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxPoint& position, std::shared_ptr<ControllerBase> controller, bool show_options)
 	: wxDialog(parent, wxID_ANY, _("Controller settings"), position, wxDefaultSize,
 	           wxDEFAULT_DIALOG_STYLE), m_controller(std::move(controller))
 {
@@ -27,6 +27,7 @@ DefaultControllerSettings::DefaultControllerSettings(wxWindow* parent, const wxP
 	auto* sizer = new wxBoxSizer(wxVERTICAL);
 
 	// options
+	if (show_options)
 	{
 		auto* box = new wxStaticBox(this, wxID_ANY, _("Options"));
 		auto* box_sizer = new wxStaticBoxSizer(box, wxVERTICAL);

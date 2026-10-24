@@ -16,6 +16,7 @@ class InputSettings2 : public wxDialog
 public:
 	InputSettings2(wxWindow* parent);
 	~InputSettings2();
+	bool configure_dsu_motion();
 
 private:
 	const wxString kDefaultProfileName = _("<profile name>");
@@ -23,7 +24,7 @@ private:
 	wxNotebook* m_notebook;
 	wxTimer* m_timer;
 
-	wxBitmap m_connected, m_disconnected, m_low_battery;
+	wxBitmap m_low_battery;
 
 	wxWindow* initialize_page(size_t index);
 
