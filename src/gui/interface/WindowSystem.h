@@ -41,6 +41,8 @@ namespace WindowSystem
 		std::atomic_bool pad_maximized = false;
 		std::atomic_int32_t restored_pad_x = -1, restored_pad_y = -1;
 		std::atomic_int32_t restored_pad_width = -1, restored_pad_height = -1;
+		std::atomic_bool pad_screen_held = false;
+		std::atomic_bool pad_screen_toggle_requested = false;
 
 		std::atomic_bool is_fullscreen;
 		std::atomic_bool debugger_focused;

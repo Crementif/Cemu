@@ -5,8 +5,10 @@
 #include "input/InputManager.h"
 #include "HotkeySettings.h"
 #include "MainWindow.h"
+#include "Cafe/OS/libs/swkbd/swkbd.h"
 
 #include <wx/app.h>
+#include <wx/choice.h>
 #include <wx/settings.h>
 #include <wx/clipbrd.h>
 
@@ -137,7 +139,7 @@ HotkeySettings::HotkeySettings(wxWindow* parent)
 	: wxPanel(parent, wxID_ANY)
 {
 	auto* hint = new wxStaticText(this, wxID_ANY, _("Click a hotkey to change it. Right-click to clear it."));
-	m_sizer = new wxFlexGridSizer(0, 3, FromDIP(4), FromDIP(12));
+	m_sizer = new wxFlexGridSizer(0, 4, FromDIP(4), FromDIP(12));
 
 	auto* layout = new wxBoxSizer(wxVERTICAL);
 	layout->Add(hint, 0, wxALL, FromDIP(12));
@@ -154,8 +156,9 @@ HotkeySettings::HotkeySettings(wxWindow* parent)
 
 	/* hotkeys */
 	CreateHotkeyRow(_tr("Toggle fullscreen"), s_cfgHotkeys.toggleFullscreen);
+	CreateHotkeyRow(_tr("Show GamePad screen"), s_cfgHotkeys.showGamePad, &s_cfgHotkeys.showGamePadToggle);
 	CreateHotkeyRow(_tr("Take screenshot"), s_cfgHotkeys.takeScreenshot);
-	CreateHotkeyRow(_tr("Toggle fast-forward"), s_cfgHotkeys.toggleFastForward);
+	CreateHotkeyRow(_tr("Fast-forward"), s_cfgHotkeys.toggleFastForward, &s_cfgHotkeys.fastForwardToggle);
 #ifdef CEMU_DEBUG_ASSERT
 	CreateHotkeyRow(_tr("End emulation"), s_cfgHotkeys.endEmulation);
 #endif
@@ -201,6 +204,9 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 		 }},
 		{&s_cfgHotkeys.exitFullscreen, [](void) {
 			 s_mainWindow->SetFullScreen(false);
+		 }},
+		{&s_cfgHotkeys.showGamePad, [](void) {
+			 g_window_info.pad_screen_toggle_requested = true;
 		 }},
 		{&s_cfgHotkeys.takeScreenshot, [](void) {
 			 if (g_renderer)
@@ -250,7 +256,7 @@ void HotkeySettings::SetInputHighlight(wxButton* button, bool active)
 
 void HotkeySettings::CreateColumnHeaders(void)
 {
-	for (const auto& label : {_("Action"), _("Keyboard"), _("Controller")})
+	for (const auto& label : {_("Action"), _("Keyboard"), _("Controller"), _("Keyboard behavior")})
 	{
 		auto* heading = new wxStaticText(this, wxID_ANY, label);
 		heading->SetFont(heading->GetFont().Bold());
@@ -258,7 +264,7 @@ void HotkeySettings::CreateColumnHeaders(void)
 	}
 }
 
-void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey)
+void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey, bool* toggleSetting)
 {
 	auto* name = new wxStaticText(this, wxID_ANY, label);
 	auto* keyInput = new wxButton(this, wxID_ANY, To_wxString(cfgHotkey.keyboard), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
@@ -279,8 +285,28 @@ void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotke
 	m_sizer->Add(name, flags);
 	m_sizer->Add(keyInput, wxSizerFlags().Expand());
 	m_sizer->Add(controllerInput, wxSizerFlags().Expand());
+	if (toggleSetting)
+		m_sizer->Add(CreateBehaviorChoice(*toggleSetting), wxSizerFlags().Expand());
+	else
+		m_sizer->AddSpacer(0);
 
 	m_hotkeys.emplace_back(name, keyInput, controllerInput, cfgHotkey);
+}
+
+wxChoice* HotkeySettings::CreateBehaviorChoice(bool& toggleSetting)
+{
+	auto* choice = new wxChoice(this, wxID_ANY);
+	choice->Append(_("Hold"));
+	choice->Append(_("Toggle"));
+	choice->SetSelection(toggleSetting ? 1 : 0);
+	choice->Bind(wxEVT_CHOICE, [this, choice, &toggleSetting](wxCommandEvent&)
+	{
+		ReleaseGamePadScreenKey();
+		ReleaseFastForwardKey();
+		toggleSetting = choice->GetSelection() == 1;
+		m_needToSave = true;
+	});
+	return choice;
 }
 
 void HotkeySettings::OnControllerTimer(wxTimerEvent& event)
@@ -509,13 +535,96 @@ wxString HotkeySettings::To_wxString(ControllerHotkey_t hotkey)
 	return m_activeController.lock()->get_button_name(hotkey);
 }
 
-void HotkeySettings::CaptureInput(wxKeyEvent& event)
+static uKeyboardHotkey GetKeyboardHotkey(const wxKeyEvent& event)
 {
 	uKeyboardHotkey hotkey{};
 	hotkey.key = event.GetKeyCode();
 	hotkey.alt = event.AltDown();
 	hotkey.ctrl = event.ControlDown();
 	hotkey.shift = event.ShiftDown();
+	return hotkey;
+}
+
+// releasing the key or any modifier ends a hold
+static bool IsHotkeyRelease(const wxKeyEvent& event, uKeyboardHotkey hotkey)
+{
+	const int key = event.GetKeyCode();
+	return key == hotkey.key || key == WXK_ALT || key == WXK_CONTROL || key == WXK_SHIFT;
+}
+
+void HotkeySettings::ReleaseGamePadScreenKey()
+{
+	s_gamePadScreenKeyDown = false;
+	g_window_info.pad_screen_held = false;
+}
+
+void HotkeySettings::ReleaseFastForwardKey()
+{
+	if (s_fastForwardKeyDown && !s_cfgHotkeys.fastForwardToggle)
+		ActiveSettings::SetTimerShiftFactor(1);
+	s_fastForwardKeyDown = false;
+}
+
+// the GamePad screen and fast-forward keys act on key down so they can be held, which also makes them work in the GamePad window
+bool HotkeySettings::CaptureHoldableInput(wxEvent& event, bool gameWindow)
+{
+	const auto type = event.GetEventType();
+	if (type == wxEVT_KILL_FOCUS || (type == wxEVT_ACTIVATE_APP && !static_cast<wxActivateEvent&>(event).GetActive()))
+	{
+		ReleaseGamePadScreenKey();
+		ReleaseFastForwardKey();
+		return false;
+	}
+
+	if (type == wxEVT_KEY_UP)
+	{
+		const auto& keyEvent = static_cast<wxKeyEvent&>(event);
+		if (IsHotkeyRelease(keyEvent, s_cfgHotkeys.showGamePad.keyboard))
+			ReleaseGamePadScreenKey();
+		if (IsHotkeyRelease(keyEvent, s_cfgHotkeys.toggleFastForward.keyboard))
+			ReleaseFastForwardKey();
+		return false;
+	}
+
+	if (type != wxEVT_KEY_DOWN || !gameWindow || swkbd_hasKeyboardInputHook())
+		return false;
+
+	// key repeats are consumed without acting again
+	const uKeyboardHotkey hotkey = GetKeyboardHotkey(static_cast<wxKeyEvent&>(event));
+	if (hotkey.raw == s_cfgHotkeys.showGamePad.keyboard.raw)
+	{
+		if (!s_gamePadScreenKeyDown)
+		{
+			if (s_cfgHotkeys.showGamePadToggle)
+				g_window_info.pad_screen_toggle_requested = true;
+			else
+				g_window_info.pad_screen_held = true;
+		}
+		s_gamePadScreenKeyDown = true;
+		return true;
+	}
+	if (hotkey.raw == s_cfgHotkeys.toggleFastForward.keyboard.raw)
+	{
+		if (!s_fastForwardKeyDown)
+		{
+			if (s_cfgHotkeys.fastForwardToggle)
+				s_cfgHotkeyToFuncMap.at(&s_cfgHotkeys.toggleFastForward)();
+			else
+				ActiveSettings::SetTimerShiftFactor(3);
+		}
+		s_fastForwardKeyDown = true;
+		return true;
+	}
+	return false;
+}
+
+void HotkeySettings::CaptureInput(wxKeyEvent& event)
+{
+	// these keys are handled on key down by CaptureHoldableInput
+	const uKeyboardHotkey hotkey = GetKeyboardHotkey(event);
+	if (hotkey.raw == s_cfgHotkeys.showGamePad.keyboard.raw || hotkey.raw == s_cfgHotkeys.toggleFastForward.keyboard.raw)
+		return;
+
 	const auto it = s_keyboardHotkeyToFuncMap.find(hotkey.raw);
 	if (it != s_keyboardHotkeyToFuncMap.end())
 		it->second();

@@ -461,6 +461,15 @@ void CemuApp::OnAssertFailure(const wxChar* file, int line, const wxChar* func, 
 	cemu_assert_debug(false);
 }
 
+static bool IsGameWindowEvent(const wxEvent& event)
+{
+	auto* window = wxDynamicCast(event.GetEventObject(), wxWindow);
+	if (!window || !g_mainFrame)
+		return false;
+	const wxWindow* topLevelWindow = wxGetTopLevelParent(window);
+	return topLevelWindow == g_mainFrame || topLevelWindow == g_mainFrame->GetPadView();
+}
+
 int CemuApp::FilterEvent(wxEvent& event)
 {
 	if(event.GetEventType() == wxEVT_KEY_DOWN)
@@ -479,6 +488,9 @@ int CemuApp::FilterEvent(wxEvent& event)
 		if(!activate_event.GetActive())
 			g_window_info.set_keystatesup();
 	}
+
+	if (HotkeySettings::CaptureHoldableInput(event, IsGameWindowEvent(event)))
+		return Event_Processed;
 
 	// track if debugger window or its child windows are focused
 	if (s_debuggerWindow && (event.GetEventType() == wxEVT_SET_FOCUS || event.GetEventType() == wxEVT_ACTIVATE))
