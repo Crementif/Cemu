@@ -1122,7 +1122,11 @@ bool GraphicPack2::Activate()
 	LoadReplacedFiles();
 
 	// set custom vsync
-	if (HasCustomVSyncFrequency())
+	if (HasCustomVSyncFrequency() && LatteTiming_hasHostModuleVsyncFrequency())
+	{
+		cemuLog_log(LogType::Force, "Ignored vsync frequency {} of graphic pack {} because a host module sets it", GetCustomVSyncFrequency(), GetVirtualPath());
+	}
+	else if (HasCustomVSyncFrequency())
 	{
 		sint32 customVsyncFreq = GetCustomVSyncFrequency();
 		sint32 globalCustomVsyncFreq = 0;

@@ -121,6 +121,9 @@ namespace HostModule
 	void SetFoveationRadii(float innerRadius, float outerRadius);
 	void SetFoveatedShadingActive(bool active);
 
+	// overrides the graphic packs and Cemu's VSync setting
+	void SetVsyncFrequency(int32_t frequency);
+
 	void RegisterExternalModules();
 	void Startup();
 	void BeforeConfigLoad();

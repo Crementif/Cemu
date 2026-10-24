@@ -5,6 +5,7 @@
 #include "config/ActiveSettings.h"
 #include "WindowSystem.h"
 #include "Cafe/HW/Latte/Core/LatteView.h"
+#include "Cafe/HW/Latte/Core/LatteTiming.h"
 
 #ifdef ENABLE_VULKAN
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
@@ -114,6 +115,11 @@ namespace HostModule
 	void SetFoveatedShadingActive(bool active)
 	{
 		LatteView_SetFoveationActive(active);
+	}
+
+	void SetVsyncFrequency(int32_t frequency)
+	{
+		LatteTiming_setHostModuleVsyncFrequency(frequency);
 	}
 
 	const std::vector<std::pair<fs::path, PackOrder>>& GetGraphicPacks()

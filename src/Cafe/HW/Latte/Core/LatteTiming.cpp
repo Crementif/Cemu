@@ -8,6 +8,7 @@
 #include "Cafe/CafeSystem.h"
 
 sint32 s_customVsyncFrequency = -1;
+sint32 s_hostModuleVsyncFrequency = -1;
 
 void LatteTiming_NotifyHostVSync();
 
@@ -19,7 +20,11 @@ HRTick LatteTime_CalculateTimeBetweenVSync()
 	// 59.94 -> 60 * 0.999
 
 	HRTick tick = HighResolutionTimer::getFrequency();
-	if (s_customVsyncFrequency > 0)
+	if (s_hostModuleVsyncFrequency > 0)
+	{
+		tick /= (uint64)s_hostModuleVsyncFrequency;
+	}
+	else if (s_customVsyncFrequency > 0)
 	{
 		tick /= (uint64)s_customVsyncFrequency;
 	}
@@ -51,11 +56,22 @@ bool LatteTiming_getCustomVsyncFrequency(sint32& customFrequency)
 	return true;
 }
 
+void LatteTiming_setHostModuleVsyncFrequency(sint32 frequency)
+{
+	s_hostModuleVsyncFrequency = frequency;
+}
+
+bool LatteTiming_hasHostModuleVsyncFrequency()
+{
+	return s_hostModuleVsyncFrequency > 0;
+}
+
 bool s_usingHostDrivenVSync = false;
 
 void LatteTiming_EnableHostDrivenVSync()
 {
-	if (s_usingHostDrivenVSync)
+	// the host vsync shouldn't cap a host module's frequency
+	if (s_usingHostDrivenVSync || s_hostModuleVsyncFrequency > 0)
 		return;
 	#ifdef ENABLE_VULKAN
 	VsyncDriver_startThread(LatteTiming_NotifyHostVSync);
