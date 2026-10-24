@@ -935,8 +935,9 @@ void MainWindow::OnOptionsInput(wxCommandEvent& event)
 
 	case MAINFRAME_MENU_ID_OPTIONS_HOTKEY:
 	{
-		auto* frame = new HotkeySettings(this);
-		frame->Show();
+		auto* frame = new InputSettings2(this, true);
+		frame->ShowModal();
+		frame->Destroy();
 		break;
 	}
 	}

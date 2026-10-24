@@ -6,7 +6,7 @@
 
 class HotkeyEntry;
 
-class HotkeySettings : public wxFrame
+class HotkeySettings : public wxPanel
 {
 public:
 	static void Init(class MainWindow* mainWindow);
@@ -24,19 +24,18 @@ private:
 	inline static std::unordered_map<uint16, std::function<void(void)>> s_controllerHotkeyToFuncMap{};
 	inline static auto& s_cfgHotkeys = GetWxGUIConfig().hotkeys;
 
-	wxPanel* m_panel;
 	wxFlexGridSizer* m_sizer;
 	wxButton* m_activeInputButton{ nullptr };
 	wxTimer* m_controllerTimer{ nullptr };
-	const wxSize m_minButtonSize{ 250, 45 };
-	const wxString m_disabledHotkeyText{ _("----") };
-	const wxString m_editModeHotkeyText{ "" };
+	const wxSize m_minButtonSize{ 140, -1 };
+	const wxString m_disabledHotkeyText{ _("Not set") };
 
 	std::vector<HotkeyEntry> m_hotkeys;
 	std::weak_ptr<ControllerBase> m_activeController{};
 	bool m_needToSave = false;
 
 	/* helpers */
+	void SetInputHighlight(wxButton* button, bool active);
 	void CreateColumnHeaders(void);
 	void CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey);
 	wxString To_wxString(uKeyboardHotkey hotkey);
@@ -47,7 +46,6 @@ private:
 	template<typename T>
 	void FinalizeInput(wxButton* inputButton);
 
-	template <typename T>
 	void RestoreInputButton(void);
 
 	/* events */

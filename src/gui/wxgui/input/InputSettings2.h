@@ -14,7 +14,7 @@ class ControllerBase;
 class InputSettings2 : public wxDialog
 {
 public:
-	InputSettings2(wxWindow* parent);
+	InputSettings2(wxWindow* parent, bool show_hotkeys = false);
 	~InputSettings2();
 	bool configure_dsu_motion();
 
