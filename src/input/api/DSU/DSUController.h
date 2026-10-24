@@ -29,6 +29,7 @@ public:
 	bool has_motion() override { return true; }
 	MotionSample get_motion_sample() override;
 
+	bool has_touchpad() override { return true; }
 	bool has_position() override;
 	glm::vec2 get_position() override;
 	glm::vec2 get_prev_position() override;

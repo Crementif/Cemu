@@ -31,6 +31,14 @@ public:
 
 	MotionSample get_motion_sample() override;
 
+	void load(const pugi::xml_node& node) override;
+	void save(pugi::xml_node& node) override;
+	bool has_touchpad() override;
+	bool has_position() override;
+	glm::vec2 get_position() override;
+	glm::vec2 get_prev_position() override;
+	PositionVisibility GetPositionVisibility() override;
+
 	std::string get_button_name(uint64 button) const override;
 	const SDL_GUID& get_guid() const { return m_guid; }
 
@@ -42,6 +50,9 @@ protected:
 	ControllerState raw_state() override;
 
 private:
+	void update_touch_input();
+	void reset_touch_input();
+
 	inline static SDL_GUID kEmptyGUID{};
 
 	size_t m_guid_index;
@@ -53,6 +64,12 @@ private:
 	bool m_has_gyro = false;
 	bool m_has_accel = false;
 	bool m_has_rumble = false;
+	bool m_has_touchpad = false;
+
+	sint32 m_active_touchpad = -1;
+	sint32 m_active_finger = -1;
+	glm::vec2 m_touch_position{};
+	glm::vec2 m_prev_touch_position{};
 	
 	std::array<bool, SDL_GAMEPAD_BUTTON_COUNT> m_buttons{};
 	std::array<bool, SDL_GAMEPAD_AXIS_COUNT> m_axis{};
