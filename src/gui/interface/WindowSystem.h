@@ -115,6 +115,12 @@ namespace WindowSystem
 			m_hidKeyEvents.clear();
 		}
 
+		bool is_hidkeyboardopen()
+		{
+			const std::lock_guard<std::mutex> lock(keycode_mutex);
+			return m_hidKeyEventsEnabled;
+		}
+
 		std::optional<HIDKeyEvent> pop_hidkeyevent()
 		{
 			const std::lock_guard<std::mutex> lock(keycode_mutex);

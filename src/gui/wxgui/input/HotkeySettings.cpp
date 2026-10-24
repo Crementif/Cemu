@@ -496,6 +496,9 @@ wxString HotkeySettings::To_wxString(ControllerHotkey_t hotkey)
 
 void HotkeySettings::CaptureInput(wxKeyEvent& event)
 {
+	if (g_window_info.is_hidkeyboardopen())
+		return;
+
 	uKeyboardHotkey hotkey{};
 	hotkey.key = event.GetKeyCode();
 	hotkey.alt = event.AltDown();
