@@ -1,4 +1,5 @@
 #include "wxgui/input/InputSettings2.h"
+#include "wxgui/input/HotkeySettings.h"
 
 #include <wx/gbsizer.h>
 
@@ -68,6 +69,8 @@ struct ControllerPage
 };
 using wxControllerPageData = wxCustomData<ControllerPage>;
 
+// the hotkey page follows the controller pages
+constexpr int kHotkeyPage = InputManager::kMaxController;
 
 // a disconnected controller shows a link that reconnects it
 static void update_connection_status(const ControllerPage& page, bool has_controller, bool connected)
@@ -84,7 +87,7 @@ static void update_connection_status(const ControllerPage& page, bool has_contro
 }
 
 
-InputSettings2::InputSettings2(wxWindow* parent)
+InputSettings2::InputSettings2(wxWindow* parent, bool show_hotkeys)
 	: wxDialog(parent, wxID_ANY, _("Input settings"))
 {
 	this->SetSizeHints(wxDefaultSize, wxDefaultSize);
@@ -102,6 +105,8 @@ InputSettings2::InputSettings2(wxWindow* parent)
 		page->SetClientObject(nullptr); // force internal type to client object
 		m_notebook->AddPage(page, formatWxString(_("Controller {}"), i + 1));
 	}
+
+	m_notebook->AddPage(new HotkeySettings(m_notebook), _("Hotkey settings"));
 
 	m_notebook->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, &InputSettings2::on_controller_page_changed, this);
 	sizer->Add(m_notebook, 1, wxEXPAND);
@@ -134,6 +139,8 @@ InputSettings2::InputSettings2(wxWindow* parent)
 	m_timer->Start(25);
 
 	m_controller_changed = EventService::instance().connect<Events::ControllerChanged>(&InputSettings2::on_controller_changed, this);
+	if (show_hotkeys)
+		m_notebook->SetSelection(kHotkeyPage);
 }
 
 InputSettings2::~InputSettings2()
@@ -149,6 +156,8 @@ InputSettings2::~InputSettings2()
 wxWindow* InputSettings2::initialize_page(size_t index)
 {
 	auto* page = m_notebook->GetPage(index);
+	if (index == kHotkeyPage)
+		return page;
 	if (page->GetClientObject()) // already initialized
 		return page;
 
@@ -373,6 +382,8 @@ bool InputSettings2::has_settings(InputAPI::Type type)
 
 void InputSettings2::update_state()
 {
+	if (m_notebook->GetSelection() == kHotkeyPage)
+		return;
 	auto* page = m_notebook->GetCurrentPage();
 	wxWindowUpdateLocker lock(page);
 
@@ -518,7 +529,7 @@ void InputSettings2::update_state()
 
 void InputSettings2::on_controller_changed()
 {
-	for(auto i = 0 ; i < m_notebook->GetPageCount(); ++i)
+	for(auto i = 0 ; i < InputManager::kMaxController; ++i)
 	{
 		auto* page = m_notebook->GetPage(i);
 		if (!page)
@@ -551,6 +562,8 @@ void InputSettings2::on_notebook_page_changed(wxBookCtrlEvent& event)
 
 void InputSettings2::on_timer(wxTimerEvent&)
 {
+	if (m_notebook->GetSelection() == kHotkeyPage)
+		return;
 	auto& page_data = get_current_page_data();
 	if (!page_data.m_controller) {
 		return;

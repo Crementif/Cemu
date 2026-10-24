@@ -7,6 +7,7 @@
 #include "MainWindow.h"
 
 #include <wx/app.h>
+#include <wx/settings.h>
 #include <wx/clipbrd.h>
 
 #if BOOST_OS_WINDOWS
@@ -133,18 +134,15 @@ struct HotkeyEntry
 };
 
 HotkeySettings::HotkeySettings(wxWindow* parent)
-	: wxFrame(parent, wxID_ANY, _("Hotkey Settings"))
+	: wxPanel(parent, wxID_ANY)
 {
-	SetIcon(wxICON(X_HOTKEY_SETTINGS));
+	auto* hint = new wxStaticText(this, wxID_ANY, _("Click a hotkey to change it. Right-click to clear it."));
+	m_sizer = new wxFlexGridSizer(0, 3, FromDIP(4), FromDIP(12));
 
-	m_sizer = new wxFlexGridSizer(0, 3, 5, 5);
-	m_sizer->AddGrowableCol(1);
-	m_sizer->AddGrowableCol(2);
-
-	m_panel = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_THEME);
-	m_panel->SetSizer(m_sizer);
-
-	Center();
+	auto* layout = new wxBoxSizer(wxVERTICAL);
+	layout->Add(hint, 0, wxALL, FromDIP(12));
+	layout->Add(m_sizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+	SetSizer(layout);
 
 	SetActiveController();
 
@@ -164,10 +162,24 @@ HotkeySettings::HotkeySettings(wxWindow* parent)
 	CreateHotkeyRow(_tr("Exit application"), s_cfgHotkeys.exitApplication);
 	CreateHotkeyRow(_tr("Release mouse"), s_cfgHotkeys.releaseMouse);
 
+	Bind(wxEVT_SHOW, [this](wxShowEvent& event)
+	{
+		if (!event.IsShown() && m_activeInputButton)
+		{
+			RestoreInputButton();
+		}
+		event.Skip();
+	});
+	Bind(wxEVT_SYS_COLOUR_CHANGED, [this](wxSysColourChangedEvent& event)
+	{
+		if (m_activeInputButton)
+			SetInputHighlight(m_activeInputButton, true);
+		event.Skip();
+	});
 	m_controllerTimer = new wxTimer(this);
 	Bind(wxEVT_TIMER, &HotkeySettings::OnControllerTimer, this);
 
-	m_sizer->SetSizeHints(this);
+	Layout();
 }
 
 HotkeySettings::~HotkeySettings()
@@ -232,28 +244,29 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 	s_mainWindow = mainWindowFrame;
 }
 
+void HotkeySettings::SetInputHighlight(wxButton* button, bool active)
+{
+	button->SetBackgroundColour(active ? wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT) : wxNullColour);
+	button->SetForegroundColour(active ? wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT) : wxNullColour);
+	button->SetFont(active ? GetFont().Bold() : GetFont());
+	button->Refresh();
+}
+
 void HotkeySettings::CreateColumnHeaders(void)
 {
-	auto* emptySpace = new wxStaticText(m_panel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-	auto* keyboard = new wxStaticText(m_panel, wxID_ANY, _tr("Keyboard"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-	auto* controller = new wxStaticText(m_panel, wxID_ANY, _tr("Controller"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-	keyboard->SetFont(keyboard->GetFont().Bold().Larger());
-	controller->SetFont(controller->GetFont().Bold().Larger());
-
-	keyboard->SetMinSize(m_minButtonSize);
-	controller->SetMinSize(m_minButtonSize);
-
-	auto flags = wxSizerFlags().Expand().Border(wxTOP, 10);
-	m_sizer->Add(emptySpace, flags);
-	m_sizer->Add(keyboard, flags);
-	m_sizer->Add(controller, flags);
+	for (const auto& label : {_("Action"), _("Keyboard"), _("Controller")})
+	{
+		auto* heading = new wxStaticText(this, wxID_ANY, label);
+		heading->SetFont(heading->GetFont().Bold());
+		m_sizer->Add(heading, 0, wxBOTTOM, FromDIP(6));
+	}
 }
 
 void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey)
 {
-	auto* name = new wxStaticText(m_panel, wxID_ANY, label);
-	auto* keyInput = new wxButton(m_panel, wxID_ANY, To_wxString(cfgHotkey.keyboard), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS | wxBU_EXACTFIT);
-	auto* controllerInput = new wxButton(m_panel, wxID_ANY, To_wxString(cfgHotkey.controller), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS | wxBU_EXACTFIT);
+	auto* name = new wxStaticText(this, wxID_ANY, label);
+	auto* keyInput = new wxButton(this, wxID_ANY, To_wxString(cfgHotkey.keyboard), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+	auto* controllerInput = new wxButton(this, wxID_ANY, To_wxString(cfgHotkey.controller), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
 
 	/* for starting input */
 	keyInput->Bind(wxEVT_BUTTON, &HotkeySettings::OnKeyboardHotkeyInputLeftClick, this);
@@ -263,17 +276,13 @@ void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotke
 	keyInput->Bind(wxEVT_RIGHT_UP, &HotkeySettings::OnKeyboardHotkeyInputRightClick, this);
 	controllerInput->Bind(wxEVT_RIGHT_UP, &HotkeySettings::OnControllerHotkeyInputRightClick, this);
 
-	keyInput->SetMinSize(m_minButtonSize);
-	controllerInput->SetMinSize(m_minButtonSize);
+	keyInput->SetMinSize(FromDIP(m_minButtonSize));
+	controllerInput->SetMinSize(FromDIP(m_minButtonSize));
 
-	const wxColour inputButtonColor = GetBackgroundColour();
-	keyInput->SetBackgroundColour(inputButtonColor);
-	controllerInput->SetBackgroundColour(inputButtonColor);
-
-	auto flags = wxSizerFlags(1).Expand().Border(wxALL, 5).CenterVertical();
+	auto flags = wxSizerFlags().CenterVertical();
 	m_sizer->Add(name, flags);
-	m_sizer->Add(keyInput, flags);
-	m_sizer->Add(controllerInput, flags);
+	m_sizer->Add(keyInput, wxSizerFlags().Expand());
+	m_sizer->Add(controllerInput, wxSizerFlags().Expand());
 
 	m_hotkeys.emplace_back(name, keyInput, controllerInput, cfgHotkey);
 }
@@ -322,10 +331,12 @@ void HotkeySettings::OnKeyboardHotkeyInputLeftClick(wxCommandEvent& event)
 	{
 		/* ignore multiple clicks of the same button */
 		if (inputButton == m_activeInputButton) return;
-		RestoreInputButton<uKeyboardHotkey>();
+		RestoreInputButton();
 	}
 	inputButton->Bind(wxEVT_KEY_UP, &HotkeySettings::OnKeyUp, this);
-	inputButton->SetLabelText(m_editModeHotkeyText);
+	inputButton->SetLabelText(_("Press a key..."));
+	SetInputHighlight(inputButton, true);
+	inputButton->SetFocus();
 	m_activeInputButton = inputButton;
 }
 
@@ -336,14 +347,16 @@ void HotkeySettings::OnControllerHotkeyInputLeftClick(wxCommandEvent& event)
 	{
 		/* ignore multiple clicks of the same button */
 		if (inputButton == m_activeInputButton) return;
-		RestoreInputButton<ControllerHotkey_t>();
+		RestoreInputButton();
 	}
 	m_controllerTimer->Stop();
 	if (!SetActiveController())
 	{
 		return;
 	}
-	inputButton->SetLabelText(m_editModeHotkeyText);
+	inputButton->SetLabelText(_("Press a button..."));
+	SetInputHighlight(inputButton, true);
+	inputButton->SetFocus();
 	m_controllerTimer->SetClientData(inputButton);
 	m_controllerTimer->Start(25);
 	m_activeInputButton = inputButton;
@@ -353,7 +366,7 @@ void HotkeySettings::OnKeyboardHotkeyInputRightClick(wxMouseEvent& event)
 {
 	if (m_activeInputButton)
 	{
-		RestoreInputButton<uKeyboardHotkey>();
+		RestoreInputButton();
 		return;
 	}
 	auto* inputButton = static_cast<wxButton*>(event.GetEventObject());
@@ -372,7 +385,7 @@ void HotkeySettings::OnControllerHotkeyInputRightClick(wxMouseEvent& event)
 {
 	if (m_activeInputButton)
 	{
-		RestoreInputButton<ControllerHotkey_t>();
+		RestoreInputButton();
 		return;
 	}
 	auto* inputButton = static_cast<wxButton*>(event.GetEventObject());
@@ -440,13 +453,19 @@ void HotkeySettings::FinalizeInput(wxButton* inputButton)
 	{
 		inputButton->SetLabelText(To_wxString(cfgHotkey.controller));
 	}
+	SetInputHighlight(inputButton, false);
 	m_activeInputButton = nullptr;
 }
 
-template<typename T>
 void HotkeySettings::RestoreInputButton(void)
 {
-	FinalizeInput<T>(m_activeInputButton);
+	if (m_controllerTimer->IsRunning())
+	{
+		m_controllerTimer->Stop();
+		FinalizeInput<ControllerHotkey_t>(m_activeInputButton);
+	}
+	else
+		FinalizeInput<uKeyboardHotkey>(m_activeInputButton);
 }
 
 bool HotkeySettings::IsValidKeycodeUp(int keycode)
