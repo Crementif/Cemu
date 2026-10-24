@@ -54,21 +54,11 @@ bool SDLController::connect()
 		return true;
 
 	m_has_rumble = false;
-	const auto index = m_provider->get_index(m_guid_index, m_guid);
-	std::scoped_lock lock(m_controller_mutex);
-
-	int gamepad_count = 0;
-
-	SDL_JoystickID *gamepad_ids = SDL_GetGamepads(&gamepad_count);
-
-	if (!gamepad_ids || index < 0 || index >= gamepad_count)
-	{
-		SDL_free(gamepad_ids);
+	const auto id = m_provider->get_gamepad_id(m_guid_index, m_guid);
+	if (id == 0)
 		return false;
-	}
-
-	m_diid = gamepad_ids[index];
-	SDL_free(gamepad_ids);
+	std::scoped_lock lock(m_controller_mutex);
+	m_diid = id;
 
 	m_controller = SDL_OpenGamepad(m_diid);
 
