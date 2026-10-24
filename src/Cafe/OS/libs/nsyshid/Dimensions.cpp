@@ -498,13 +498,13 @@ namespace nsyshid
 
 	bool DimensionsToypadDevice::SetProtocol(uint8 ifIndex, uint8 protocol)
 	{
-		cemuLog_log(LogType::Force, "Toypad Protocol");
+		cemuLog_log(LogType::NSYSHID, "Toypad Protocol");
 		return true;
 	}
 
 	bool DimensionsToypadDevice::SetReport(ReportMessage* message)
 	{
-		cemuLog_log(LogType::Force, "Toypad Report");
+		cemuLog_log(LogType::NSYSHID, "Toypad Report");
 		return true;
 	}
 

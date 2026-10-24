@@ -1,6 +1,7 @@
 #include "wxgui/CemuApp.h"
 #include "wxCemuConfig.h"
 #include "wxgui/MainWindow.h"
+#include "wxgui/PadViewFrame.h"
 #include "wxgui/wxgui.h"
 #include "config/CemuConfig.h"
 #ifdef ENABLE_VULKAN
@@ -36,6 +37,7 @@
 #include "Cafe/TitleList/SaveList.h"
 #include "Cafe/CafeSystem.h"
 #include "Cafe/HostModule/HostModule.h"
+#include "Cafe/OS/libs/swkbd/swkbd.h"
 
 wxIMPLEMENT_APP_NO_MAIN(CemuApp);
 
@@ -468,17 +470,70 @@ void CemuApp::OnAssertFailure(const wxChar* file, int line, const wxChar* func, 
 	cemu_assert_debug(false);
 }
 
+// the emulated USB keyboard only sees keys typed into the game windows
+static bool IsGameWindowEvent(const wxEvent& event)
+{
+	auto* window = wxDynamicCast(event.GetEventObject(), wxWindow);
+	if (!window || !g_mainFrame)
+		return false;
+	const wxWindow* topLevelWindow = wxGetTopLevelParent(window);
+	return topLevelWindow == g_mainFrame || topLevelWindow == g_mainFrame->GetPadView();
+}
+
+// the USB mouse and keyboard hotkeys always work in the game windows, other keys only reach the USB keyboard while the game uses it
+static bool FilterUSBInputEvent(wxEvent& event)
+{
+	const auto type = event.GetEventType();
+	if (type == wxEVT_KEY_UP)
+	{
+		const auto& keyEvent = static_cast<wxKeyEvent&>(event);
+		if (HotkeySettings::CaptureUSBInput(keyEvent))
+			return true;
+
+		// escape doesn't release the USB mouse or keyboard, so it reminds the player how to turn them off
+		const bool usbInputActive = g_window_info.is_hidkeyboardopen() || g_window_info.hid_mouse_captured;
+		if (keyEvent.GetKeyCode() == WXK_ESCAPE && usbInputActive && !swkbd_hasKeyboardInputHook())
+		{
+			g_mainFrame->ShowUSBInputNotice(true);
+			return true;
+		}
+	}
+
+	if (!g_window_info.is_hidkeyboardopen())
+		return false;
+
+	if (type == wxEVT_CHAR_HOOK)
+	{
+		// the USB keyboard reads the key down event that follows
+		static_cast<wxKeyEvent&>(event).DoAllowNextEvent();
+		return true;
+	}
+	if (type == wxEVT_KEY_UP || type == wxEVT_NAVIGATION_KEY)
+		return true;
+	// the swkbd overlay still needs to receive typed keys
+	if (type == wxEVT_KEY_DOWN || type == wxEVT_CHAR)
+		return !swkbd_hasKeyboardInputHook();
+	return false;
+}
+
 int CemuApp::FilterEvent(wxEvent& event)
 {
 	if(event.GetEventType() == wxEVT_KEY_DOWN)
 	{
 		const auto& key_event = (wxKeyEvent&)event;
 		g_window_info.set_keystate(fix_raw_keycode(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags()), true);
+		// while the swkbd overlay is open it takes the keyboard input
+		uint8 usage = raw_keycode_to_hid_usage(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags());
+		if (usage != 0 && IsGameWindowEvent(event) && !swkbd_hasKeyboardInputHook())
+			g_window_info.set_hidkeystate(usage, true);
 	}
 	else if(event.GetEventType() == wxEVT_KEY_UP)
 	{
 		const auto& key_event = (wxKeyEvent&)event;
 		g_window_info.set_keystate(fix_raw_keycode(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags()), false);
+		uint8 usage = raw_keycode_to_hid_usage(key_event.GetRawKeyCode(), key_event.GetRawKeyFlags());
+		if (usage != 0)
+			g_window_info.set_hidkeystate(usage, false);
 	}
 	else if(event.GetEventType() == wxEVT_ACTIVATE_APP)
 	{
@@ -486,6 +541,12 @@ int CemuApp::FilterEvent(wxEvent& event)
 		if(!activate_event.GetActive())
 			g_window_info.set_keystatesup();
 	}
+
+	if (HotkeySettings::CaptureHoldableInput(event, IsGameWindowEvent(event)))
+		return Event_Processed;
+
+	if (IsGameWindowEvent(event) && FilterUSBInputEvent(event))
+		return Event_Processed;
 
 	// track if debugger window or its child windows are focused
 	if (s_debuggerWindow && (event.GetEventType() == wxEVT_SET_FOCUS || event.GetEventType() == wxEVT_ACTIVATE))

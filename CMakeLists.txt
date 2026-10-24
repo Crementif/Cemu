@@ -184,6 +184,12 @@ if (UNIX AND NOT APPLE)
 		ecm_add_wayland_client_protocol(WAYLAND_PROTOCOL_SRCS
 			PROTOCOL "${WaylandProtocols_DATADIR}/stable/viewporter/viewporter.xml"
 			BASENAME viewporter)
+		ecm_add_wayland_client_protocol(WAYLAND_PROTOCOL_SRCS
+			PROTOCOL "${WaylandProtocols_DATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml"
+			BASENAME relative-pointer-unstable-v1)
+		ecm_add_wayland_client_protocol(WAYLAND_PROTOCOL_SRCS
+			PROTOCOL "${WaylandProtocols_DATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml"
+			BASENAME pointer-constraints-unstable-v1)
 		add_library(CemuWaylandProtocols STATIC ${WAYLAND_PROTOCOL_SRCS})
 		target_include_directories(CemuWaylandProtocols PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 		target_include_directories(CemuWaylandProtocols PRIVATE ${Wayland_INCLUDE_DIRS})

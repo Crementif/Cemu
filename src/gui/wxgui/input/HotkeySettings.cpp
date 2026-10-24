@@ -5,8 +5,11 @@
 #include "input/InputManager.h"
 #include "HotkeySettings.h"
 #include "MainWindow.h"
+#include "Cafe/OS/libs/swkbd/swkbd.h"
 
 #include <wx/app.h>
+#include <wx/choice.h>
+#include <wx/settings.h>
 #include <wx/clipbrd.h>
 
 #if BOOST_OS_WINDOWS
@@ -133,18 +136,15 @@ struct HotkeyEntry
 };
 
 HotkeySettings::HotkeySettings(wxWindow* parent)
-	: wxFrame(parent, wxID_ANY, _("Hotkey Settings"))
+	: wxPanel(parent, wxID_ANY)
 {
-	SetIcon(wxICON(X_HOTKEY_SETTINGS));
+	auto* hint = new wxStaticText(this, wxID_ANY, _("Click a hotkey to change it. Right-click to clear it."));
+	m_sizer = new wxFlexGridSizer(0, 4, FromDIP(4), FromDIP(12));
 
-	m_sizer = new wxFlexGridSizer(0, 3, 5, 5);
-	m_sizer->AddGrowableCol(1);
-	m_sizer->AddGrowableCol(2);
-
-	m_panel = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_THEME);
-	m_panel->SetSizer(m_sizer);
-
-	Center();
+	auto* layout = new wxBoxSizer(wxVERTICAL);
+	layout->Add(hint, 0, wxALL, FromDIP(12));
+	layout->Add(m_sizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+	SetSizer(layout);
 
 	SetActiveController();
 
@@ -156,17 +156,34 @@ HotkeySettings::HotkeySettings(wxWindow* parent)
 
 	/* hotkeys */
 	CreateHotkeyRow(_tr("Toggle fullscreen"), s_cfgHotkeys.toggleFullscreen);
+	CreateHotkeyRow(_tr("Show GamePad screen"), s_cfgHotkeys.showGamePad, &s_cfgHotkeys.showGamePadToggle);
 	CreateHotkeyRow(_tr("Take screenshot"), s_cfgHotkeys.takeScreenshot);
-	CreateHotkeyRow(_tr("Toggle fast-forward"), s_cfgHotkeys.toggleFastForward);
+	CreateHotkeyRow(_tr("Fast-forward"), s_cfgHotkeys.toggleFastForward, &s_cfgHotkeys.fastForwardToggle);
 #ifdef CEMU_DEBUG_ASSERT
 	CreateHotkeyRow(_tr("End emulation"), s_cfgHotkeys.endEmulation);
 #endif
 	CreateHotkeyRow(_tr("Exit application"), s_cfgHotkeys.exitApplication);
+	CreateHotkeyRow(_tr("Emulate USB mouse"), s_cfgHotkeys.toggleUSBMouse);
+	CreateHotkeyRow(_tr("Emulate USB keyboard"), s_cfgHotkeys.toggleUSBKeyboard);
 
+	Bind(wxEVT_SHOW, [this](wxShowEvent& event)
+	{
+		if (!event.IsShown() && m_activeInputButton)
+		{
+			RestoreInputButton();
+		}
+		event.Skip();
+	});
+	Bind(wxEVT_SYS_COLOUR_CHANGED, [this](wxSysColourChangedEvent& event)
+	{
+		if (m_activeInputButton)
+			SetInputHighlight(m_activeInputButton, true);
+		event.Skip();
+	});
 	m_controllerTimer = new wxTimer(this);
 	Bind(wxEVT_TIMER, &HotkeySettings::OnControllerTimer, this);
 
-	m_sizer->SetSizeHints(this);
+	Layout();
 }
 
 HotkeySettings::~HotkeySettings()
@@ -190,6 +207,9 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 		{&s_cfgHotkeys.exitFullscreen, [](void) {
 			 s_mainWindow->SetFullScreen(false);
 		 }},
+		{&s_cfgHotkeys.showGamePad, [](void) {
+			 g_window_info.pad_screen_toggle_requested = true;
+		 }},
 		{&s_cfgHotkeys.takeScreenshot, [](void) {
 			 if (g_renderer)
 				 g_renderer->RequestScreenshot(SaveScreenshot);
@@ -201,6 +221,12 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 			auto closeEvent = new wxCloseEvent{wxEVT_CLOSE_WINDOW, s_mainWindow->GetId()};
 			closeEvent->SetCanVeto(false);
 			wxQueueEvent(s_mainWindow, closeEvent);
+		 }},
+		{&s_cfgHotkeys.toggleUSBMouse, [](void) {
+			 s_mainWindow->CallAfter([]() { s_mainWindow->SetUSBMouseEnabled(!GetConfig().emulated_usb_devices.emulate_mouse); });
+		 }},
+		{&s_cfgHotkeys.toggleUSBKeyboard, [](void) {
+			 s_mainWindow->CallAfter([]() { s_mainWindow->SetUSBKeyboardEnabled(!GetConfig().emulated_usb_devices.emulate_keyboard); });
 		 }},
 #ifdef CEMU_DEBUG_ASSERT
 		{&s_cfgHotkeys.endEmulation, [](void) {
@@ -228,28 +254,29 @@ void HotkeySettings::Init(MainWindow* mainWindowFrame)
 	s_mainWindow = mainWindowFrame;
 }
 
-void HotkeySettings::CreateColumnHeaders(void)
+void HotkeySettings::SetInputHighlight(wxButton* button, bool active)
 {
-	auto* emptySpace = new wxStaticText(m_panel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-	auto* keyboard = new wxStaticText(m_panel, wxID_ANY, _tr("Keyboard"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-	auto* controller = new wxStaticText(m_panel, wxID_ANY, _tr("Controller"), wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-	keyboard->SetFont(keyboard->GetFont().Bold().Larger());
-	controller->SetFont(controller->GetFont().Bold().Larger());
-
-	keyboard->SetMinSize(m_minButtonSize);
-	controller->SetMinSize(m_minButtonSize);
-
-	auto flags = wxSizerFlags().Expand().Border(wxTOP, 10);
-	m_sizer->Add(emptySpace, flags);
-	m_sizer->Add(keyboard, flags);
-	m_sizer->Add(controller, flags);
+	button->SetBackgroundColour(active ? wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT) : wxNullColour);
+	button->SetForegroundColour(active ? wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT) : wxNullColour);
+	button->SetFont(active ? GetFont().Bold() : GetFont());
+	button->Refresh();
 }
 
-void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey)
+void HotkeySettings::CreateColumnHeaders(void)
 {
-	auto* name = new wxStaticText(m_panel, wxID_ANY, label);
-	auto* keyInput = new wxButton(m_panel, wxID_ANY, To_wxString(cfgHotkey.keyboard), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS | wxBU_EXACTFIT);
-	auto* controllerInput = new wxButton(m_panel, wxID_ANY, To_wxString(cfgHotkey.controller), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS | wxBU_EXACTFIT);
+	for (const auto& label : {_("Action"), _("Keyboard"), _("Controller"), _("Keyboard behavior")})
+	{
+		auto* heading = new wxStaticText(this, wxID_ANY, label);
+		heading->SetFont(heading->GetFont().Bold());
+		m_sizer->Add(heading, 0, wxBOTTOM, FromDIP(6));
+	}
+}
+
+void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey, bool* toggleSetting)
+{
+	auto* name = new wxStaticText(this, wxID_ANY, label);
+	auto* keyInput = new wxButton(this, wxID_ANY, To_wxString(cfgHotkey.keyboard), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+	auto* controllerInput = new wxButton(this, wxID_ANY, To_wxString(cfgHotkey.controller), wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
 
 	/* for starting input */
 	keyInput->Bind(wxEVT_BUTTON, &HotkeySettings::OnKeyboardHotkeyInputLeftClick, this);
@@ -259,19 +286,35 @@ void HotkeySettings::CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotke
 	keyInput->Bind(wxEVT_RIGHT_UP, &HotkeySettings::OnKeyboardHotkeyInputRightClick, this);
 	controllerInput->Bind(wxEVT_RIGHT_UP, &HotkeySettings::OnControllerHotkeyInputRightClick, this);
 
-	keyInput->SetMinSize(m_minButtonSize);
-	controllerInput->SetMinSize(m_minButtonSize);
+	keyInput->SetMinSize(FromDIP(m_minButtonSize));
+	controllerInput->SetMinSize(FromDIP(m_minButtonSize));
 
-	const wxColour inputButtonColor = GetBackgroundColour();
-	keyInput->SetBackgroundColour(inputButtonColor);
-	controllerInput->SetBackgroundColour(inputButtonColor);
-
-	auto flags = wxSizerFlags(1).Expand().Border(wxALL, 5).CenterVertical();
+	auto flags = wxSizerFlags().CenterVertical();
 	m_sizer->Add(name, flags);
-	m_sizer->Add(keyInput, flags);
-	m_sizer->Add(controllerInput, flags);
+	m_sizer->Add(keyInput, wxSizerFlags().Expand());
+	m_sizer->Add(controllerInput, wxSizerFlags().Expand());
+	if (toggleSetting)
+		m_sizer->Add(CreateBehaviorChoice(*toggleSetting), wxSizerFlags().Expand());
+	else
+		m_sizer->AddSpacer(0);
 
 	m_hotkeys.emplace_back(name, keyInput, controllerInput, cfgHotkey);
+}
+
+wxChoice* HotkeySettings::CreateBehaviorChoice(bool& toggleSetting)
+{
+	auto* choice = new wxChoice(this, wxID_ANY);
+	choice->Append(_("Hold"));
+	choice->Append(_("Toggle"));
+	choice->SetSelection(toggleSetting ? 1 : 0);
+	choice->Bind(wxEVT_CHOICE, [this, choice, &toggleSetting](wxCommandEvent&)
+	{
+		ReleaseGamePadScreenKey();
+		ReleaseFastForwardKey();
+		toggleSetting = choice->GetSelection() == 1;
+		m_needToSave = true;
+	});
+	return choice;
 }
 
 void HotkeySettings::OnControllerTimer(wxTimerEvent& event)
@@ -318,10 +361,12 @@ void HotkeySettings::OnKeyboardHotkeyInputLeftClick(wxCommandEvent& event)
 	{
 		/* ignore multiple clicks of the same button */
 		if (inputButton == m_activeInputButton) return;
-		RestoreInputButton<uKeyboardHotkey>();
+		RestoreInputButton();
 	}
 	inputButton->Bind(wxEVT_KEY_UP, &HotkeySettings::OnKeyUp, this);
-	inputButton->SetLabelText(m_editModeHotkeyText);
+	inputButton->SetLabelText(_("Press a key..."));
+	SetInputHighlight(inputButton, true);
+	inputButton->SetFocus();
 	m_activeInputButton = inputButton;
 }
 
@@ -332,14 +377,16 @@ void HotkeySettings::OnControllerHotkeyInputLeftClick(wxCommandEvent& event)
 	{
 		/* ignore multiple clicks of the same button */
 		if (inputButton == m_activeInputButton) return;
-		RestoreInputButton<ControllerHotkey_t>();
+		RestoreInputButton();
 	}
 	m_controllerTimer->Stop();
 	if (!SetActiveController())
 	{
 		return;
 	}
-	inputButton->SetLabelText(m_editModeHotkeyText);
+	inputButton->SetLabelText(_("Press a button..."));
+	SetInputHighlight(inputButton, true);
+	inputButton->SetFocus();
 	m_controllerTimer->SetClientData(inputButton);
 	m_controllerTimer->Start(25);
 	m_activeInputButton = inputButton;
@@ -349,7 +396,7 @@ void HotkeySettings::OnKeyboardHotkeyInputRightClick(wxMouseEvent& event)
 {
 	if (m_activeInputButton)
 	{
-		RestoreInputButton<uKeyboardHotkey>();
+		RestoreInputButton();
 		return;
 	}
 	auto* inputButton = static_cast<wxButton*>(event.GetEventObject());
@@ -368,7 +415,7 @@ void HotkeySettings::OnControllerHotkeyInputRightClick(wxMouseEvent& event)
 {
 	if (m_activeInputButton)
 	{
-		RestoreInputButton<ControllerHotkey_t>();
+		RestoreInputButton();
 		return;
 	}
 	auto* inputButton = static_cast<wxButton*>(event.GetEventObject());
@@ -436,13 +483,19 @@ void HotkeySettings::FinalizeInput(wxButton* inputButton)
 	{
 		inputButton->SetLabelText(To_wxString(cfgHotkey.controller));
 	}
+	SetInputHighlight(inputButton, false);
 	m_activeInputButton = nullptr;
 }
 
-template<typename T>
 void HotkeySettings::RestoreInputButton(void)
 {
-	FinalizeInput<T>(m_activeInputButton);
+	if (m_controllerTimer->IsRunning())
+	{
+		m_controllerTimer->Stop();
+		FinalizeInput<ControllerHotkey_t>(m_activeInputButton);
+	}
+	else
+		FinalizeInput<uKeyboardHotkey>(m_activeInputButton);
 }
 
 bool HotkeySettings::IsValidKeycodeUp(int keycode)
@@ -463,7 +516,7 @@ bool HotkeySettings::IsValidKeycodeUp(int keycode)
 wxString HotkeySettings::To_wxString(uKeyboardHotkey hotkey)
 {
 	if (hotkey.raw == sHotkeyCfg::keyboardNone) {
-		return m_disabledHotkeyText;
+		return _("Not set");
 	}
 	wxString ret{};
 	if (hotkey.alt)
@@ -485,18 +538,119 @@ wxString HotkeySettings::To_wxString(uKeyboardHotkey hotkey)
 wxString HotkeySettings::To_wxString(ControllerHotkey_t hotkey)
 {
 	if ((hotkey == sHotkeyCfg::controllerNone) || m_activeController.expired()) {
-		return m_disabledHotkeyText;
+		return _("Not set");
 	}
 	return m_activeController.lock()->get_button_name(hotkey);
 }
 
-void HotkeySettings::CaptureInput(wxKeyEvent& event)
+static uKeyboardHotkey GetKeyboardHotkey(const wxKeyEvent& event)
 {
 	uKeyboardHotkey hotkey{};
 	hotkey.key = event.GetKeyCode();
 	hotkey.alt = event.AltDown();
 	hotkey.ctrl = event.ControlDown();
 	hotkey.shift = event.ShiftDown();
+	return hotkey;
+}
+
+// releasing the key or any modifier ends a hold
+static bool IsHotkeyRelease(const wxKeyEvent& event, uKeyboardHotkey hotkey)
+{
+	const int key = event.GetKeyCode();
+	return key == hotkey.key || key == WXK_ALT || key == WXK_CONTROL || key == WXK_SHIFT;
+}
+
+void HotkeySettings::ReleaseGamePadScreenKey()
+{
+	s_gamePadScreenKeyDown = false;
+	g_window_info.pad_screen_held = false;
+}
+
+void HotkeySettings::ReleaseFastForwardKey()
+{
+	if (s_fastForwardKeyDown && !s_cfgHotkeys.fastForwardToggle)
+		ActiveSettings::SetTimerShiftFactor(1);
+	s_fastForwardKeyDown = false;
+}
+
+// the GamePad screen and fast-forward keys act on key down so they can be held, which also makes them work in the GamePad window
+bool HotkeySettings::CaptureHoldableInput(wxEvent& event, bool gameWindow)
+{
+	const auto type = event.GetEventType();
+	if (type == wxEVT_KILL_FOCUS || (type == wxEVT_ACTIVATE_APP && !static_cast<wxActivateEvent&>(event).GetActive()))
+	{
+		ReleaseGamePadScreenKey();
+		ReleaseFastForwardKey();
+		return false;
+	}
+
+	if (type == wxEVT_KEY_UP)
+	{
+		const auto& keyEvent = static_cast<wxKeyEvent&>(event);
+		if (IsHotkeyRelease(keyEvent, s_cfgHotkeys.showGamePad.keyboard))
+			ReleaseGamePadScreenKey();
+		if (IsHotkeyRelease(keyEvent, s_cfgHotkeys.toggleFastForward.keyboard))
+			ReleaseFastForwardKey();
+		return false;
+	}
+
+	if (type != wxEVT_KEY_DOWN || !gameWindow || g_window_info.is_hidkeyboardopen() || swkbd_hasKeyboardInputHook())
+		return false;
+
+	// key repeats are consumed without acting again
+	const uKeyboardHotkey hotkey = GetKeyboardHotkey(static_cast<wxKeyEvent&>(event));
+	if (hotkey.raw == s_cfgHotkeys.showGamePad.keyboard.raw)
+	{
+		if (!s_gamePadScreenKeyDown)
+		{
+			if (s_cfgHotkeys.showGamePadToggle)
+				g_window_info.pad_screen_toggle_requested = true;
+			else
+				g_window_info.pad_screen_held = true;
+		}
+		s_gamePadScreenKeyDown = true;
+		return true;
+	}
+	if (hotkey.raw == s_cfgHotkeys.toggleFastForward.keyboard.raw)
+	{
+		if (!s_fastForwardKeyDown)
+		{
+			if (s_cfgHotkeys.fastForwardToggle)
+				s_cfgHotkeyToFuncMap.at(&s_cfgHotkeys.toggleFastForward)();
+			else
+				ActiveSettings::SetTimerShiftFactor(3);
+		}
+		s_fastForwardKeyDown = true;
+		return true;
+	}
+	return false;
+}
+
+// the USB mouse and keyboard hotkeys keep working while the game uses the USB keyboard
+bool HotkeySettings::CaptureUSBInput(const wxKeyEvent& event)
+{
+	const uKeyboardHotkey hotkey = GetKeyboardHotkey(event);
+	for (auto* cfgHotkey : {&s_cfgHotkeys.toggleUSBMouse, &s_cfgHotkeys.toggleUSBKeyboard})
+	{
+		if (cfgHotkey->keyboard.raw == hotkey.raw)
+		{
+			s_cfgHotkeyToFuncMap.at(cfgHotkey)();
+			return true;
+		}
+	}
+	return false;
+}
+
+void HotkeySettings::CaptureInput(wxKeyEvent& event)
+{
+	if (g_window_info.is_hidkeyboardopen())
+		return;
+
+	// these keys are handled on key down by CaptureHoldableInput
+	const uKeyboardHotkey hotkey = GetKeyboardHotkey(event);
+	if (hotkey.raw == s_cfgHotkeys.showGamePad.keyboard.raw || hotkey.raw == s_cfgHotkeys.toggleFastForward.keyboard.raw)
+		return;
+
 	const auto it = s_keyboardHotkeyToFuncMap.find(hotkey.raw);
 	if (it != s_keyboardHotkeyToFuncMap.end())
 		it->second();

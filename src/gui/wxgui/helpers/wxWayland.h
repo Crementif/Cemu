@@ -8,6 +8,8 @@
 #include <wayland-client.h>
 #include <wx/wx.h>
 #include "wayland-viewporter-client-protocol.h"
+#include "wayland-relative-pointer-unstable-v1-client-protocol.h"
+#include "wayland-pointer-constraints-unstable-v1-client-protocol.h"
 
 class wxWlSubsurface
 {
@@ -85,6 +87,32 @@ public:
 		wl_surface_destroy(m_surface);
 		wl_subcompositor_destroy(m_subcompositor);
 	}
+};
+
+// Wayland doesn't let clients move the pointer. Locks it in place instead and reports its relative motion
+class wxWlPointerLock
+{
+	static void registry_add_object(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version);
+	static void registry_remove_object(void* /*data*/, struct wl_registry* /*registry*/, uint32_t /*name*/) {}
+	static void relative_motion(void* data, zwp_relative_pointer_v1* relativePointer, uint32_t utimeHi, uint32_t utimeLo, wl_fixed_t dx, wl_fixed_t dy, wl_fixed_t dxUnaccel, wl_fixed_t dyUnaccel);
+
+	wl_registry_listener m_registry_listener = {&registry_add_object, &registry_remove_object};
+	zwp_relative_pointer_v1_listener m_relative_pointer_listener = {&relative_motion};
+	zwp_relative_pointer_manager_v1* m_relative_pointer_manager = nullptr;
+	zwp_pointer_constraints_v1* m_pointer_constraints = nullptr;
+	zwp_relative_pointer_v1* m_relative_pointer = nullptr;
+	zwp_locked_pointer_v1* m_locked_pointer = nullptr;
+	std::function<void(sint32, sint32)> m_motion_callback;
+	double m_remainder_x = 0.0;
+	double m_remainder_y = 0.0;
+
+public:
+	// the callback gets the unaccelerated motion in whole pixels
+	wxWlPointerLock(wxWindow* window, std::function<void(sint32, sint32)> motionCallback);
+	~wxWlPointerLock();
+
+	// false when the compositor lacks one of the protocols
+	bool IsLocked() const { return m_locked_pointer != nullptr; }
 };
 
 bool wxWlIsWaylandWindow(wxWindow* window);

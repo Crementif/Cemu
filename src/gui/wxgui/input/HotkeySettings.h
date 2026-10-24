@@ -6,12 +6,15 @@
 
 class HotkeyEntry;
 
-class HotkeySettings : public wxFrame
+class HotkeySettings : public wxPanel
 {
 public:
 	static void Init(class MainWindow* mainWindow);
+	static wxString To_wxString(uKeyboardHotkey hotkey);
 
 	static void CaptureInput(wxKeyEvent& event);
+	static bool CaptureHoldableInput(wxEvent& event, bool gameWindow);
+	static bool CaptureUSBInput(const wxKeyEvent& event);
 	static void CaptureInput(const ControllerState& currentState, const ControllerState& lastState);
 
 	HotkeySettings(wxWindow* parent);
@@ -19,27 +22,29 @@ public:
 
 private:
 	inline static class MainWindow* s_mainWindow = nullptr;
+	inline static bool s_gamePadScreenKeyDown = false;
+	inline static bool s_fastForwardKeyDown = false;
+	static void ReleaseGamePadScreenKey();
+	static void ReleaseFastForwardKey();
 	static std::unordered_map<sHotkeyCfg*, std::function<void(void)>> s_cfgHotkeyToFuncMap;
 	inline static std::unordered_map<uint16, std::function<void(void)>> s_keyboardHotkeyToFuncMap{};
 	inline static std::unordered_map<uint16, std::function<void(void)>> s_controllerHotkeyToFuncMap{};
 	inline static auto& s_cfgHotkeys = GetWxGUIConfig().hotkeys;
 
-	wxPanel* m_panel;
 	wxFlexGridSizer* m_sizer;
 	wxButton* m_activeInputButton{ nullptr };
 	wxTimer* m_controllerTimer{ nullptr };
-	const wxSize m_minButtonSize{ 250, 45 };
-	const wxString m_disabledHotkeyText{ _("----") };
-	const wxString m_editModeHotkeyText{ "" };
+	const wxSize m_minButtonSize{ 140, -1 };
 
 	std::vector<HotkeyEntry> m_hotkeys;
 	std::weak_ptr<ControllerBase> m_activeController{};
 	bool m_needToSave = false;
 
 	/* helpers */
+	void SetInputHighlight(wxButton* button, bool active);
 	void CreateColumnHeaders(void);
-	void CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey);
-	wxString To_wxString(uKeyboardHotkey hotkey);
+	void CreateHotkeyRow(const wxString& label, sHotkeyCfg& cfgHotkey, bool* toggleSetting = nullptr);
+	wxChoice* CreateBehaviorChoice(bool& toggleSetting);
 	wxString To_wxString(ControllerHotkey_t hotkey);
 	bool IsValidKeycodeUp(int keycode);
 	bool SetActiveController(void);
@@ -47,7 +52,6 @@ private:
 	template<typename T>
 	void FinalizeInput(wxButton* inputButton);
 
-	template <typename T>
 	void RestoreInputButton(void);
 
 	/* events */

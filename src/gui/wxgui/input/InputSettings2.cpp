@@ -1,4 +1,7 @@
 #include "wxgui/input/InputSettings2.h"
+#include "wxgui/input/HotkeySettings.h"
+#include "wxgui/MainWindow.h"
+#include "gui/interface/WindowSystem.h"
 
 #include <wx/gbsizer.h>
 
@@ -14,12 +17,13 @@
 #include <wx/combobox.h>
 #include <wx/button.h>
 #include <wx/statline.h>
-#include <wx/bmpbuttn.h>
+#include <wx/hyperlink.h>
 #include <wx/settings.h>
 
 #include "config/ActiveSettings.h"
 #include "wxgui/input/InputAPIAddWindow.h"
 #include "input/ControllerFactory.h"
+#include "input/emulated/VPADController.h"
 
 #ifdef HAS_BLUEZ
 #include "wxgui/input/PairingDialog.h"
@@ -58,26 +62,63 @@ struct ControllerPage
 	wxButton* m_controller_api_add, *m_controller_api_remove;
 
 	wxButton* m_controller_settings, * m_controller_calibrate, *m_controller_clear;
-	wxBitmapButton* m_controller_connected;
+	wxHyperlinkCtrl* m_connection_link;
+	wxStaticText* m_connection_status;
 
 	// panel
 	std::array<InputPanel*, EmulatedController::Type::MAX> m_panels{};
+	wxBoxSizer* m_panel_sizer;
 };
 using wxControllerPageData = wxCustomData<ControllerPage>;
 
+// the hotkey page follows the controller pages
+constexpr int kHotkeyPage = InputManager::kMaxController;
 
-InputSettings2::InputSettings2(wxWindow* parent)
+// a disconnected controller shows a link that reconnects it
+static void update_connection_status(const ControllerPage& page, bool has_controller, bool connected)
+{
+	const bool show_link = has_controller && !connected;
+	const wxString status = has_controller ? _("Connected") : _("No controller");
+	if (page.m_connection_link->IsShown() == show_link && page.m_connection_status->GetLabel() == status)
+		return;
+
+	page.m_connection_status->SetLabel(status);
+	page.m_connection_status->Show(!show_link);
+	page.m_connection_link->Show(show_link);
+	page.m_connection_status->GetParent()->Layout();
+}
+
+
+InputSettings2::InputSettings2(wxWindow* parent, bool show_hotkeys)
 	: wxDialog(parent, wxID_ANY, _("Input settings"))
 {
 	this->SetSizeHints(wxDefaultSize, wxDefaultSize);
 
 	g_inputConfigWindowHasFocus = true;
 
-	m_connected = wxHelper::LoadThemedBitmapFromPNG(INPUT_CONNECTED_png, sizeof(INPUT_CONNECTED_png), wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
-	m_disconnected = wxHelper::LoadThemedBitmapFromPNG(INPUT_DISCONNECTED_png, sizeof(INPUT_DISCONNECTED_png), wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
 	m_low_battery = wxHelper::LoadThemedBitmapFromPNG(INPUT_LOW_BATTERY_png, sizeof(INPUT_LOW_BATTERY_png), wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
 
 	auto* sizer = new wxBoxSizer(wxVERTICAL);
+
+	// usb input notice
+	m_usb_input_notice = new wxPanel(this);
+	auto* notice_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+	m_usb_input_text = new wxStaticText(m_usb_input_notice, wxID_ANY, wxEmptyString);
+	notice_sizer->Add(m_usb_input_text, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+
+	auto* turn_off_button = new wxButton(m_usb_input_notice, wxID_ANY, _("Turn off USB mouse and keyboard"));
+	turn_off_button->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
+	{
+		g_mainFrame->SetUSBMouseEnabled(false);
+		g_mainFrame->SetUSBKeyboardEnabled(false);
+		update_usb_input_notice();
+	});
+	notice_sizer->Add(turn_off_button, 0, wxALIGN_CENTER_VERTICAL);
+
+	m_usb_input_notice->SetSizer(notice_sizer);
+	m_usb_input_notice->Hide();
+	sizer->Add(m_usb_input_notice, 0, wxEXPAND | wxALL, FromDIP(8));
 
 	m_notebook = new wxNotebook(this, wxID_ANY);
 	for(size_t i = 0; i < InputManager::kMaxController; ++i)
@@ -86,6 +127,8 @@ InputSettings2::InputSettings2(wxWindow* parent)
 		page->SetClientObject(nullptr); // force internal type to client object
 		m_notebook->AddPage(page, formatWxString(_("Controller {}"), i + 1));
 	}
+
+	m_notebook->AddPage(new HotkeySettings(m_notebook), _("Hotkey settings"));
 
 	m_notebook->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, &InputSettings2::on_controller_page_changed, this);
 	sizer->Add(m_notebook, 1, wxEXPAND);
@@ -98,8 +141,7 @@ InputSettings2::InputSettings2(wxWindow* parent)
 	auto* panel = new VPADInputPanel(first_page);
 	page_data->ref().m_panels[EmulatedController::Type::VPAD] = panel;
 
-	auto* first_page_sizer = dynamic_cast<wxGridBagSizer*>(first_page->GetSizer());
-	auto* panel_sizer = first_page_sizer->FindItemAtPosition(wxGBPosition(7, 0))->GetSizer();
+	auto* panel_sizer = page_data->ref().m_panel_sizer;
 	panel_sizer->Add(panel, 0, wxEXPAND);
 
 	panel->Show();
@@ -119,6 +161,8 @@ InputSettings2::InputSettings2(wxWindow* parent)
 	m_timer->Start(25);
 
 	m_controller_changed = EventService::instance().connect<Events::ControllerChanged>(&InputSettings2::on_controller_changed, this);
+	if (show_hotkeys)
+		m_notebook->SetSelection(kHotkeyPage);
 }
 
 InputSettings2::~InputSettings2()
@@ -134,6 +178,8 @@ InputSettings2::~InputSettings2()
 wxWindow* InputSettings2::initialize_page(size_t index)
 {
 	auto* page = m_notebook->GetPage(index);
+	if (index == kHotkeyPage)
+		return page;
 	if (page->GetClientObject()) // already initialized
 		return page;
 
@@ -181,7 +227,7 @@ wxWindow* InputSettings2::initialize_page(size_t index)
 		auto* profile_status = new wxStaticText(page, wxID_ANY, _("controller set by gameprofile. changes won't be saved permanently!"));
 		profile_status->SetMinSize(wxSize(200, -1));
 		profile_status->Wrap(200);
-		sizer->Add(profile_status, wxGBPosition(0, 5), wxDefaultSpan, wxALIGN_CENTER_VERTICAL | wxALL | wxRESERVE_SPACE_EVEN_IF_HIDDEN, 5);
+		sizer->Add(profile_status, wxGBPosition(0, 5), wxDefaultSpan, wxALIGN_CENTER_VERTICAL | wxALL, 5);
 
 		if(InputManager::instance().is_gameprofile_set(index))
 		{
@@ -243,15 +289,21 @@ wxWindow* InputSettings2::initialize_page(size_t index)
 			// add/remove buttons
 			auto* bttn_sizer = new wxBoxSizer(wxHORIZONTAL);
 
-			auto* add_api = new wxButton(page, wxID_ANY, " + ", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			auto* add_api = new wxButton(page, wxID_ANY, "+", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			add_api->SetToolTip(_("Add controller"));
 			add_api->Bind(wxEVT_BUTTON, &InputSettings2::on_controller_add, this);
-			bttn_sizer->Add(add_api, 0, wxALL, 5);
+			bttn_sizer->Add(add_api, 0, wxRIGHT, page->FromDIP(4));
 
-			auto* remove_api = new wxButton(page, wxID_ANY, "  -  ", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			auto* remove_api = new wxButton(page, wxID_ANY, wxUniChar(0x2212), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			remove_api->SetToolTip(_("Remove controller"));
 			remove_api->Bind(wxEVT_BUTTON, &InputSettings2::on_controller_remove, this);
-			bttn_sizer->Add(remove_api, 0, wxALL, 5);
+			bttn_sizer->Add(remove_api);
 
-			sizer->Add(bttn_sizer, wxGBPosition(4, 2), wxDefaultSpan, wxEXPAND, 5);
+			const int button_size = std::max(page->FromDIP(24), add_api->GetBestSize().GetHeight());
+			add_api->SetMinSize(wxSize(button_size, button_size));
+			remove_api->SetMinSize(wxSize(button_size, button_size));
+
+			sizer->Add(bttn_sizer, wxGBPosition(4, 2), wxDefaultSpan, wxALIGN_CENTER_VERTICAL | wxALL, 5);
 
 			page_data.m_controller_api_add = add_api;
 			page_data.m_controller_api_remove = remove_api;
@@ -284,15 +336,30 @@ wxWindow* InputSettings2::initialize_page(size_t index)
 
 		sizer->Add(controller_bttns, wxGBPosition(5, 1), wxDefaultSpan, wxALIGN_CENTER_VERTICAL);
 
-		auto* connected_button = new wxBitmapButton(page, wxID_ANY, m_disconnected);
-		connected_button->Bind(wxEVT_BUTTON, &InputSettings2::on_controller_connect, this);
-		connected_button->SetToolTip(_("Test if the controller is connected"));
-		sizer->Add(connected_button, wxGBPosition(5, 2), wxDefaultSpan, wxALIGN_CENTER_VERTICAL | wxALL, 5); // TODO replace with icon
+		// connection
+		auto* connection_status = new wxStaticText(page, wxID_ANY, _("Connected"));
+		auto* connection_link = new wxHyperlinkCtrl(page, wxID_ANY, _("Disconnected"), wxEmptyString, wxDefaultPosition, wxDefaultSize, wxHL_ALIGN_LEFT);
+		connection_link->SetToolTip(_("Try connecting to the selected controller again."));
+		connection_link->Bind(wxEVT_HYPERLINK, &InputSettings2::on_controller_connect, this);
+		connection_link->Hide();
+
+		// fits the longest label so switching between them doesn't move the other controls
+		wxSize connection_size = connection_link->GetBestSize();
+		connection_size.IncTo(connection_status->GetBestSize());
+		connection_size.IncTo(page->GetTextExtent(_("No controller")));
+
+		auto* connection_sizer = new wxBoxSizer(wxHORIZONTAL);
+		connection_sizer->SetMinSize(connection_size);
+		connection_sizer->Add(connection_status, 0, wxALIGN_CENTER_VERTICAL);
+		connection_sizer->Add(connection_link, 0, wxALIGN_CENTER_VERTICAL);
+		sizer->Add(connection_sizer, wxGBPosition(5, 2), wxGBSpan(1, 4), wxALIGN_CENTER_VERTICAL | wxALL, 5);
+
+		page_data.m_connection_status = connection_status;
+		page_data.m_connection_link = connection_link;
 
 		page_data.m_controller_settings = settings;
 		page_data.m_controller_calibrate = calibrate;
 		page_data.m_controller_clear = clear;
-		page_data.m_controller_connected = connected_button;
 
 	}
 
@@ -301,6 +368,7 @@ wxWindow* InputSettings2::initialize_page(size_t index)
 	auto* panel_sizer = new wxBoxSizer(wxVERTICAL);
 	sizer->Add(panel_sizer, wxGBPosition(7, 0), wxGBSpan(1, 6), wxEXPAND | wxALL, 5);
 
+	page_data.m_panel_sizer = panel_sizer;
 	page->SetSizer(sizer);
 	page->Layout();
 
@@ -334,8 +402,35 @@ bool InputSettings2::has_settings(InputAPI::Type type)
 	}
 }
 
+// the game using the USB mouse or keyboard pauses the inputs mapped here
+void InputSettings2::update_usb_input_notice()
+{
+	auto& window_info = WindowSystem::GetWindowInfo();
+	const bool mouse = window_info.hid_mouse_active;
+	const bool keyboard = window_info.is_hidkeyboardopen();
+
+	wxString text;
+	if (mouse && keyboard)
+		text = _("The game is using the USB mouse and keyboard, which pauses mouse touch, mouse motion, keyboard controls and hotkeys.");
+	else if (mouse)
+		text = _("The game is using the USB mouse, which pauses mouse touch and mouse motion.");
+	else if (keyboard)
+		text = _("The game is using the USB keyboard, which pauses keyboard controls and hotkeys.");
+
+	const bool show = !text.empty();
+	if (m_usb_input_notice->IsShown() == show && m_usb_input_text->GetLabel() == text)
+		return;
+
+	m_usb_input_text->SetLabel(text);
+	m_usb_input_notice->Show(show);
+	Layout();
+	Fit();
+}
+
 void InputSettings2::update_state()
 {
+	if (m_notebook->GetSelection() == kHotkeyPage)
+		return;
 	auto* page = m_notebook->GetCurrentPage();
 	wxWindowUpdateLocker lock(page);
 
@@ -386,10 +481,7 @@ void InputSettings2::update_state()
 			controller = data->ref();
 	}
 
-	if (controller && controller->is_connected())
-		page_data.m_controller_connected->SetBitmap(m_connected);
-	else
-		page_data.m_controller_connected->SetBitmap(m_disconnected);
+	update_connection_status(page_data, controller != nullptr, controller && controller->is_connected());
 
 	// update controller
 	page_data.m_controller_calibrate->Enable(has_controllers);
@@ -422,6 +514,8 @@ void InputSettings2::update_state()
 			if (panel)
 				panel->load_controller(page_data.m_controller);
 		}
+		Layout();
+		Fit();
 		return;
 	}
 
@@ -463,7 +557,7 @@ void InputSettings2::update_state()
 
 			page_data.m_panels[type] = panel;
 
-			auto* panel_sizer = sizer->FindItemAtPosition(wxGBPosition(7, 0))->GetSizer();
+			auto* panel_sizer = page_data.m_panel_sizer;
 			wxASSERT(panel_sizer);
 			panel_sizer->Add(panel, 0, wxEXPAND);
 		}
@@ -476,11 +570,13 @@ void InputSettings2::update_state()
 		page->wxWindowBase::Layout();
 		page->wxWindow::Update();
 	}
+	Layout();
+	Fit();
 }
 
 void InputSettings2::on_controller_changed()
 {
-	for(auto i = 0 ; i < m_notebook->GetPageCount(); ++i)
+	for(auto i = 0 ; i < InputManager::kMaxController; ++i)
 	{
 		auto* page = m_notebook->GetPage(i);
 		if (!page)
@@ -497,10 +593,7 @@ void InputSettings2::on_controller_changed()
 			{
 				if (const auto controller = data->ref())
 				{
-					if (controller->connect())
-						page_data.m_controller_connected->SetBitmap(m_connected);
-					else
-						page_data.m_controller_connected->SetBitmap(m_disconnected);
+					update_connection_status(page_data, true, controller->connect());
 				}
 			}
 		}
@@ -516,6 +609,9 @@ void InputSettings2::on_notebook_page_changed(wxBookCtrlEvent& event)
 
 void InputSettings2::on_timer(wxTimerEvent&)
 {
+	update_usb_input_notice();
+	if (m_notebook->GetSelection() == kHotkeyPage)
+		return;
 	auto& page_data = get_current_page_data();
 	if (!page_data.m_controller) {
 		return;
@@ -526,7 +622,7 @@ void InputSettings2::on_timer(wxTimerEvent&)
 		return;
 
 	auto controller = get_active_controller();
-	if (controller) {
+	if (controller || page_data.m_controller->type() == EmulatedController::Type::VPAD) {
 		panel->on_timer(page_data.m_controller, controller);
 	}
 }
@@ -839,13 +935,41 @@ void InputSettings2::on_controller_connect(wxCommandEvent& event)
 		{
 			if(const auto controller = data->ref())
 			{
-				if(controller->connect())
-					page_data.m_controller_connected->SetBitmap(m_connected);
-				else
-					page_data.m_controller_connected->SetBitmap(m_disconnected);
+				update_connection_status(page_data, true, controller->connect());
 			}
 		}
 	}
+}
+
+bool InputSettings2::configure_dsu_motion()
+{
+	const auto& emulated_controller = get_current_page_data().m_controller;
+	if (!emulated_controller || emulated_controller->type() != EmulatedController::Type::VPAD)
+		return false;
+
+	InputAPIAddWindow wnd(this, wxDefaultPosition, {}, InputAPI::DSUClient);
+	wnd.SetTitle(_("Set up DSUController"));
+	if (wnd.ShowModal() != wxID_OK || !wnd.is_valid())
+		return false;
+
+	// an already attached controller for the same server is reused
+	auto dsu_controller = wnd.get_controller();
+	const auto& controllers = emulated_controller->get_controllers();
+	const auto it = std::ranges::find_if(controllers, [&](const ControllerPtr& controller) { return *controller == *dsu_controller; });
+	if (it != controllers.end())
+		dsu_controller = *it;
+	else
+		emulated_controller->add_controller(dsu_controller);
+	dsu_controller->connect();
+
+	for (const auto& controller : emulated_controller->get_controllers())
+		controller->set_use_motion(controller == dsu_controller);
+
+	auto* vpad = static_cast<VPADController*>(emulated_controller.get());
+	vpad->set_motion_enabled(true);
+	vpad->set_prefer_native_motion(true);
+	update_state();
+	return true;
 }
 
 void InputSettings2::on_controller_add(wxCommandEvent& event)
@@ -956,7 +1080,10 @@ void InputSettings2::on_controller_settings(wxCommandEvent& event)
 	case InputAPI::SDLController:
 	case InputAPI::DSUClient:
 	{
-		DefaultControllerSettings wnd(this, wxGetMousePosition() + wxSize(5, 5), controller);
+		// the GamePad panel has its own motion and rumble settings
+		const auto& emulated_controller = get_current_page_data().m_controller;
+		const bool show_options = !emulated_controller || emulated_controller->type() != EmulatedController::Type::VPAD;
+		DefaultControllerSettings wnd(this, wxGetMousePosition() + wxSize(5, 5), controller, show_options);
 		wnd.ShowModal();
 		break;
 	}

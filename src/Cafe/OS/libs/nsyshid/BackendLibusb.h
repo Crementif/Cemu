@@ -94,6 +94,14 @@ namespace nsyshid::backend::libusb
 
 		bool SetProtocol(uint8 ifIndex, uint8 protocol) override;
 
+		bool GetIdle(uint8 ifIndex,
+					 uint8 reportId,
+					 uint8* duration) override;
+
+		bool GetProtocol(uint8 ifIndex, uint8* protocol) override;
+
+		bool GetReport(ReportMessage* message) override;
+
 		int ClaimAllInterfaces(uint8 config_num);
 		int ReleaseAllInterfaces(uint8 config_num);
 		int ReleaseAllInterfacesForCurrentConfig();

@@ -60,6 +60,7 @@ namespace nsyshid
 	{
 		uint8 reportType;
 		uint8 reportId;
+		uint32 bytesRead = 0; // set by GetReport, a device may return a shorter report than requested
 
 		ReportMessage(uint8 reportType, uint8 reportId, uint8* data, uint32 length)
 			: reportType(reportType), reportId(reportId), TransferCommand(data, length)
@@ -139,6 +140,13 @@ namespace nsyshid
 		virtual bool SetProtocol(uint8 ifIndex, uint8 protocol) = 0;
 
 		virtual bool SetReport(ReportMessage* message) = 0;
+
+		// the following requests are optional for HID devices, by default they are not supported
+		virtual bool GetIdle(uint8 ifIndex, uint8 reportId, uint8* duration);
+
+		virtual bool GetProtocol(uint8 ifIndex, uint8* protocol);
+
+		virtual bool GetReport(ReportMessage* message);
 	};
 
 	class Backend
@@ -160,6 +168,9 @@ namespace nsyshid
 		// called from nsyshid when this backend is detached - do not call this yourself!
 		void OnDetach();
 
+		// called from nsyshid when the emulated device settings changed - do not call this yourself!
+		void OnSettingsChanged();
+
 		bool IsBackendAttached();
 
 		virtual bool IsInitialisedOk() = 0;
@@ -178,6 +189,9 @@ namespace nsyshid
 
 		// called from OnAttach() - attach devices that your backend can see here
 		virtual void AttachVisibleDevices() = 0;
+
+		// called from OnSettingsChanged() - attach or detach devices which were enabled or disabled
+		virtual void UpdateVisibleDevices() {}
 
 	  private:
 		std::list<std::shared_ptr<Device>> m_devices;

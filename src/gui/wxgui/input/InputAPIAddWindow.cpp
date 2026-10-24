@@ -22,7 +22,7 @@ using wxTypeData = wxCustomData<InputAPI::Type>;
 using wxControllerData = wxCustomData<ControllerPtr>;
 
 InputAPIAddWindow::InputAPIAddWindow(wxWindow* parent, const wxPoint& position,
-                                     const std::vector<ControllerPtr>& controllers)
+                                     const std::vector<ControllerPtr>& controllers, std::optional<InputAPI::Type> fixed_api)
 	: wxDialog(parent, wxID_ANY, "Add input API", position, wxDefaultSize, wxCAPTION), m_controllers(controllers)
 {
 	this->SetSizeHints(wxDefaultSize, wxDefaultSize);
@@ -112,6 +112,21 @@ InputAPIAddWindow::InputAPIAddWindow(wxWindow* parent, const wxPoint& position,
 	sizer->Fit(this);
 
 	this->Bind(wxControllersRefreshed, &InputAPIAddWindow::on_controllers_refreshed, this);
+
+	if (fixed_api)
+	{
+		for (uint32 i = 0; i < m_input_api->GetCount(); ++i)
+		{
+			if (static_cast<wxTypeData*>(m_input_api->GetClientObject(i))->get() != *fixed_api)
+				continue;
+
+			m_input_api->SetSelection(i);
+			m_input_api->Disable();
+			wxCommandEvent event;
+			on_api_selected(event);
+			break;
+		}
+	}
 }
 
 InputAPIAddWindow::~InputAPIAddWindow()
@@ -122,7 +137,7 @@ InputAPIAddWindow::~InputAPIAddWindow()
 void InputAPIAddWindow::on_add_button(wxCommandEvent& event)
 {
 	const auto selection = m_input_api->GetSelection();
-	if (selection == wxNOT_FOUND)
+	if (selection == wxNOT_FOUND || !m_controller)
 	{
 		cemu_assert_debug(false);
 		EndModal(wxID_CANCEL);

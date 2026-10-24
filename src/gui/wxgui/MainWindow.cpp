@@ -58,6 +58,8 @@
 
 //Cafe libs
 #include "Cafe/OS/libs/nfc/nfc.h"
+#include "Cafe/OS/libs/nsyshid/nsyshid.h"
+#include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/OS/libs/swkbd/swkbd.h"
 
 #include "Cafe/HW/Latte/Renderer/Renderer.h" // For renderer API checks
@@ -112,7 +114,13 @@ enum
 	MAINFRAME_MENU_ID_TOOLS_MEMORY_SEARCHER = 20600,
 	MAINFRAME_MENU_ID_TOOLS_TITLE_MANAGER,
 	MAINFRAME_MENU_ID_TOOLS_DOWNLOAD_MANAGER,
-	MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES,
+	// usb devices
+	MAINFRAME_MENU_ID_USB_KEYBOARD,
+	MAINFRAME_MENU_ID_USB_MOUSE,
+	MAINFRAME_MENU_ID_USB_SKYLANDERS,
+	MAINFRAME_MENU_ID_USB_INFINITY,
+	MAINFRAME_MENU_ID_USB_DIMENSIONS,
+	MAINFRAME_MENU_ID_USB_SETTINGS,
 	// cpu
 	// cpu->timer speed
 	MAINFRAME_MENU_ID_TIMER_SPEED_1X = 20700,
@@ -197,7 +205,9 @@ EVT_MENU(MAINFRAME_MENU_ID_OPTIONS_MAC_SETTINGS, MainWindow::OnOptionsInput)
 EVT_MENU(MAINFRAME_MENU_ID_TOOLS_MEMORY_SEARCHER, MainWindow::OnToolsInput)
 EVT_MENU(MAINFRAME_MENU_ID_TOOLS_TITLE_MANAGER, MainWindow::OnToolsInput)
 EVT_MENU(MAINFRAME_MENU_ID_TOOLS_DOWNLOAD_MANAGER, MainWindow::OnToolsInput)
-EVT_MENU(MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES, MainWindow::OnToolsInput)
+// usb devices menu
+EVT_MENU_RANGE(MAINFRAME_MENU_ID_USB_KEYBOARD, MAINFRAME_MENU_ID_USB_SETTINGS, MainWindow::OnUSBDevicesInput)
+EVT_UPDATE_UI_RANGE(MAINFRAME_MENU_ID_USB_KEYBOARD, MAINFRAME_MENU_ID_USB_MOUSE, MainWindow::OnUSBDevicesUpdateUI)
 // cpu menu
 EVT_MENU(MAINFRAME_MENU_ID_TIMER_SPEED_8X, MainWindow::OnDebugSetting)
 EVT_MENU(MAINFRAME_MENU_ID_TIMER_SPEED_4X, MainWindow::OnDebugSetting)
@@ -370,6 +380,11 @@ MainWindow::MainWindow()
 
 	Bind(wxEVT_OPEN_GRAPHIC_PACK, &MainWindow::OnGraphicWindowOpen, this);
 	Bind(wxEVT_LAUNCH_GAME, &MainWindow::OnLaunchFromFile, this);
+	Bind(wxEVT_ACTIVATE, [this](wxActivateEvent& event) {
+		if (!event.GetActive())
+			SetMouseCaptured(false);
+		event.Skip();
+	});
 
 	if (LaunchSettings::GDBStubEnabled())
 	{
@@ -835,6 +850,17 @@ WXLRESULT MainWindow::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lPara
 			InputManager::instance().on_device_changed();
 		}
 	}
+	else if (nMsg == WM_INPUT && m_mouse_captured)
+	{
+		// raw input motion is not affected by the pointer acceleration of the system
+		RAWINPUT input;
+		UINT size = sizeof(input);
+		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) != (UINT)-1 &&
+			input.header.dwType == RIM_TYPEMOUSE && (input.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0)
+		{
+			g_window_info.add_hidmousemotion(input.data.mouse.lLastX, input.data.mouse.lLastY, 0);
+		}
+	}
 
 	return wxFrame::MSWWindowProc(nMsg, wParam, lParam);
 }
@@ -929,8 +955,9 @@ void MainWindow::OnOptionsInput(wxCommandEvent& event)
 
 	case MAINFRAME_MENU_ID_OPTIONS_HOTKEY:
 	{
-		auto* frame = new HotkeySettings(this);
-		frame->Show();
+		auto* frame = new InputSettings2(this, true);
+		frame->ShowModal();
+		frame->Destroy();
 		break;
 	}
 	}
@@ -1264,6 +1291,114 @@ void MainWindow::ShowCursor(bool state)
 	#endif
 }
 
+// while a title uses the emulated USB mouse the game window can capture the mouse and forward its relative motion
+void MainWindow::SetMouseCaptured(bool state)
+{
+	if (m_mouse_captured == state)
+		return;
+	if (state && (!m_render_canvas || !g_window_info.hid_mouse_active || !GetConfig().emulated_usb_devices.emulate_mouse))
+		return;
+	m_mouse_captured = state;
+	InputManager::instance().reset_mouse_input();
+	g_window_info.hid_mouse_captured = state;
+	#if BOOST_OS_WINDOWS
+	RAWINPUTDEVICE device{};
+	device.usUsagePage = 0x01; // generic desktop
+	device.usUsage = 0x02; // mouse
+	device.dwFlags = state ? 0 : RIDEV_REMOVE;
+	device.hwndTarget = state ? GetHWND() : nullptr;
+	if (!RegisterRawInputDevices(&device, 1, sizeof(device)))
+		cemuLog_log(LogType::Force, "Failed to register raw mouse input: {}", GetLastError());
+	#endif
+	if (state)
+	{
+		#if ( BOOST_OS_LINUX || BOOST_OS_BSD ) && HAS_WAYLAND
+		if (wxWlIsWaylandWindow(this))
+		{
+			m_wayland_pointer_lock = std::make_unique<wxWlPointerLock>(m_render_canvas, [](sint32 deltaX, sint32 deltaY) { g_window_info.add_hidmousemotion(deltaX, deltaY, 0); });
+			if (!m_wayland_pointer_lock->IsLocked())
+			{
+				cemuLog_log(LogType::Force, "The Wayland compositor doesn't support pointer locking, the captured mouse can leave the window");
+				m_wayland_pointer_lock.reset();
+			}
+		}
+		#endif
+		ClipCapturedMouse();
+		ShowCursor(false);
+		ShowUSBInputNotice();
+	}
+	else
+	{
+		#if ( BOOST_OS_LINUX || BOOST_OS_BSD ) && HAS_WAYLAND
+		m_wayland_pointer_lock.reset();
+		#endif
+		g_window_info.set_hidmousebuttonsup();
+		m_mouse_wheel_remainder = 0;
+		#if BOOST_OS_WINDOWS
+		ClipCursor(nullptr);
+		#endif
+		m_last_mouse_move_time = std::chrono::steady_clock::now();
+		ShowCursor(true);
+	}
+}
+
+// keeps the cursor in the centre of the game window so that clicks don't leave it
+void MainWindow::ClipCapturedMouse()
+{
+	if (!m_render_canvas)
+		return;
+	const wxSize size = m_render_canvas->GetClientSize();
+	m_mouse_capture_center = wxPoint(size.x / 2, size.y / 2);
+	#if BOOST_OS_WINDOWS
+	const wxPoint screenPos = m_render_canvas->ClientToScreen(m_mouse_capture_center);
+	const RECT rect{screenPos.x, screenPos.y, screenPos.x + 1, screenPos.y + 1};
+	ClipCursor(&rect);
+	#else
+	#if ( BOOST_OS_LINUX || BOOST_OS_BSD ) && HAS_WAYLAND
+	// a locked Wayland pointer stays where it is
+	if (m_wayland_pointer_lock)
+		return;
+	#endif
+	m_render_canvas->WarpPointer(m_mouse_capture_center.x, m_mouse_capture_center.y);
+	#endif
+}
+
+// returns true if the button event belongs to the captured mouse
+bool MainWindow::HandleCapturedMouseButton(wxMouseEvent& event)
+{
+	if (!m_mouse_captured)
+	{
+		// clicking into the game window captures the mouse
+		if (event.LeftDown() && g_window_info.hid_mouse_active && g_window_info.app_active)
+			SetMouseCaptured(true);
+		return m_mouse_captured;
+	}
+	uint8 button;
+	switch (event.GetButton())
+	{
+	case wxMOUSE_BTN_LEFT:
+		button = 0;
+		break;
+	case wxMOUSE_BTN_RIGHT:
+		button = 1;
+		break;
+	case wxMOUSE_BTN_MIDDLE:
+		button = 2;
+		break;
+	case wxMOUSE_BTN_AUX1:
+		button = 3;
+		break;
+	case wxMOUSE_BTN_AUX2:
+		button = 4;
+		break;
+	default:
+		return true;
+	}
+	// a fast second click arrives as a double click instead of a button down event
+	g_window_info.set_hidmousebutton(button, event.ButtonDown() || event.ButtonDClick());
+	return true;
+}
+
 uintptr_t MainWindow::GetRenderCanvasHWND()
 {
 	// deprecated. We can use the global cross-platform window info structs now
@@ -1380,6 +1515,23 @@ void MainWindow::OnMouseMove(wxMouseEvent& event)
 {
 	event.Skip();
 
+	if (m_mouse_captured)
+	{
+		#if !BOOST_OS_WINDOWS
+		#if ( BOOST_OS_LINUX || BOOST_OS_BSD ) && HAS_WAYLAND
+		if (m_wayland_pointer_lock)
+			return;
+		#endif
+		const wxPoint delta = event.GetPosition() - m_mouse_capture_center;
+		if (delta.x != 0 || delta.y != 0)
+		{
+			g_window_info.add_hidmousemotion(delta.x, delta.y, 0);
+			m_render_canvas->WarpPointer(m_mouse_capture_center.x, m_mouse_capture_center.y);
+		}
+		#endif
+		return;
+	}
+
 	m_last_mouse_move_time = std::chrono::steady_clock::now();
 	m_mouse_position = wxGetMousePosition();
 	ShowCursor(true);
@@ -1401,6 +1553,11 @@ void MainWindow::OnMouseMove(wxMouseEvent& event)
 
 void MainWindow::OnMouseLeft(wxMouseEvent& event)
 {
+	if (HandleCapturedMouseButton(event))
+	{
+		event.Skip();
+		return;
+	}
 	auto& instance = InputManager::instance();
 
 	std::scoped_lock lock(instance.m_main_mouse.m_mutex);
@@ -1415,6 +1572,11 @@ void MainWindow::OnMouseLeft(wxMouseEvent& event)
 
 void MainWindow::OnMouseRight(wxMouseEvent& event)
 {
+	if (HandleCapturedMouseButton(event))
+	{
+		event.Skip();
+		return;
+	}
 	auto& instance = InputManager::instance();
 
 	std::scoped_lock lock(instance.m_main_mouse.m_mutex);
@@ -1424,6 +1586,12 @@ void MainWindow::OnMouseRight(wxMouseEvent& event)
 	if(event.ButtonDown(wxMOUSE_BTN_RIGHT))
 		instance.m_main_mouse.right_down_toggle = true;
 
+	event.Skip();
+}
+
+void MainWindow::OnMouseButton(wxMouseEvent& event)
+{
+	HandleCapturedMouseButton(event);
 	event.Skip();
 }
 
@@ -1528,30 +1696,168 @@ void MainWindow::OnToolsInput(wxCommandEvent& event)
 		}
 		break;
 	}
-	case MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES:
+	}
+}
+
+void MainWindow::SetUSBMouseEnabled(bool enabled)
+{
+	if (GetConfig().emulated_usb_devices.emulate_mouse == enabled)
+		return;
+	GetConfig().emulated_usb_devices.emulate_mouse = enabled;
+	if (!enabled)
+		SetMouseCaptured(false);
+	GetConfigHandle().Save();
+	nsyshid::UpdateEmulatedDevices();
+	if (enabled)
+		ShowUSBInputNotice();
+	else if (m_game_launched)
+		LatteOverlay_pushNotification(_tr("USB mouse off. Mouse controls restored."), 4000);
+}
+
+void MainWindow::SetUSBKeyboardEnabled(bool enabled)
+{
+	if (GetConfig().emulated_usb_devices.emulate_keyboard == enabled)
+		return;
+	GetConfig().emulated_usb_devices.emulate_keyboard = enabled;
+	GetConfigHandle().Save();
+	nsyshid::UpdateEmulatedDevices();
+	if (enabled)
+		ShowUSBInputNotice();
+	else if (m_game_launched)
+		LatteOverlay_pushNotification(_tr("USB keyboard off."), 3000);
+}
+
+// like "Emulate mouse [F8]"
+static wxString GetLabelWithHotkey(const wxString& label, const sHotkeyCfg& hotkey)
+{
+	if (hotkey.keyboard.raw == sHotkeyCfg::keyboardNone)
+		return label;
+	return formatWxString("{} [{}]", label.utf8_string(), HotkeySettings::To_wxString(hotkey.keyboard).utf8_string());
+}
+
+wxString MainWindow::GetUSBMouseLabel()
+{
+	return GetLabelWithHotkey(_("Emulate mouse"), GetWxGUIConfig().hotkeys.toggleUSBMouse);
+}
+
+wxString MainWindow::GetUSBKeyboardLabel()
+{
+	return GetLabelWithHotkey(_("Emulate keyboard"), GetWxGUIConfig().hotkeys.toggleUSBKeyboard);
+}
+
+void MainWindow::OnUSBDevicesUpdateUI(wxUpdateUIEvent& event)
+{
+	const auto& config = GetConfig().emulated_usb_devices;
+	if (event.GetId() == MAINFRAME_MENU_ID_USB_MOUSE)
 	{
-		if (m_usb_devices)
-		{
-			m_usb_devices->Show(true);
-			m_usb_devices->Raise();
-			m_usb_devices->SetFocus();
-		}
-		else
-		{
-			m_usb_devices = new EmulatedUSBDeviceFrame(this);
-			m_usb_devices->Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& event)
+		event.Check(config.emulate_mouse);
+		event.SetText(GetUSBMouseLabel());
+	}
+	else
+	{
+		event.Check(config.emulate_keyboard);
+		event.SetText(GetUSBKeyboardLabel());
+	}
+}
+
+static std::string GetTurnOffHint(const sHotkeyCfg& hotkey)
+{
+	return _tr("{} to turn off.", HotkeySettings::To_wxString(hotkey.keyboard).utf8_string());
+}
+
+// the USB mouse and keyboard take over the regular mouse and keyboard controls, so the notice says how to turn them off
+void MainWindow::ShowUSBInputNotice(bool brief)
+{
+	const auto& config = GetConfig().emulated_usb_devices;
+	if (!m_game_launched || (!config.emulate_mouse && !config.emulate_keyboard))
+		return;
+
+	// brief reminders come from key presses, so they're rate limited
+	const auto now = std::chrono::steady_clock::now();
+	if (brief && now - m_last_usb_input_notice < std::chrono::seconds(3))
+		return;
+	m_last_usb_input_notice = now;
+
+	std::string text;
+	auto addLine = [&text](const std::string& line)
+	{
+		if (!text.empty())
+			text += "\n";
+		text += line;
+	};
+
+	const auto& hotkeys = GetWxGUIConfig().hotkeys;
+	const bool hasMouseHotkey = hotkeys.toggleUSBMouse.keyboard.raw != sHotkeyCfg::keyboardNone;
+	const bool hasKeyboardHotkey = hotkeys.toggleUSBKeyboard.keyboard.raw != sHotkeyCfg::keyboardNone;
+
+	if (config.emulate_mouse)
+	{
+		const std::string status = m_mouse_captured ? _tr("Mouse captured.") : _tr("USB mouse on.");
+		addLine(hasMouseHotkey ? status + " " + GetTurnOffHint(hotkeys.toggleUSBMouse) : status);
+		if (m_mouse_captured && !brief)
+			addLine(_tr("Mouse touch and motion paused."));
+	}
+	if (config.emulate_keyboard)
+	{
+		const std::string status = g_window_info.is_hidkeyboardopen() ? _tr("USB keyboard in use. Keyboard controls paused.") : _tr("USB keyboard on.");
+		addLine(hasKeyboardHotkey ? status + " " + GetTurnOffHint(hotkeys.toggleUSBKeyboard) : status);
+	}
+	if ((config.emulate_mouse && !hasMouseHotkey) || (config.emulate_keyboard && !hasKeyboardHotkey))
+		addLine(_tr("Turn off in USB Devices."));
+
+	LatteOverlay_pushNotification(text, brief ? 3000 : 6000);
+}
+
+void MainWindow::OnUSBDevicesInput(wxCommandEvent& event)
+{
+	const int id = event.GetId();
+	if (id == MAINFRAME_MENU_ID_USB_MOUSE)
+	{
+		SetUSBMouseEnabled(event.IsChecked());
+		return;
+	}
+	if (id == MAINFRAME_MENU_ID_USB_KEYBOARD)
+	{
+		SetUSBKeyboardEnabled(event.IsChecked());
+		return;
+	}
+
+	if (!m_usb_devices)
+	{
+		m_usb_devices = new EmulatedUSBDeviceFrame(this);
+		m_usb_devices->Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& event)
+			{
+				if (event.CanVeto())
 				{
-					if (event.CanVeto()) {
-						m_usb_devices->Show(false);
-						event.Veto();
-					}
-				});
-			m_usb_devices->Show(true);
-		}
+					m_usb_devices->Show(false);
+					event.Veto();
+				}
+				else
+				{
+					m_usb_devices = nullptr;
+					event.Skip();
+				}
+			});
+	}
+
+	switch (id)
+	{
+	case MAINFRAME_MENU_ID_USB_SETTINGS:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::MouseKeyboard);
+		break;
+	case MAINFRAME_MENU_ID_USB_SKYLANDERS:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::Skylanders);
+		break;
+	case MAINFRAME_MENU_ID_USB_INFINITY:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::Infinity);
+		break;
+	case MAINFRAME_MENU_ID_USB_DIMENSIONS:
+		m_usb_devices->SelectPage(EmulatedUSBDeviceFrame::Page::Dimensions);
 		break;
 	}
-	break;
-	}
+	m_usb_devices->Show(true);
+	m_usb_devices->Raise();
+	m_usb_devices->SetFocus();
 }
 
 void MainWindow::OnGesturePan(wxPanGestureEvent& event)
@@ -1570,6 +1876,7 @@ void MainWindow::OnGesturePan(wxPanGestureEvent& event)
 
 void MainWindow::OnGameLoaded()
 {
+	CallAfter([this]() { ShowUSBInputNotice(); });
 	if (m_debugger_window)
 		m_debugger_window->OnGameLoaded();
 }
@@ -1618,6 +1925,9 @@ void MainWindow::CreateCanvas()
 	m_render_canvas->Bind(wxEVT_LEFT_UP, &MainWindow::OnMouseLeft, this);
 	m_render_canvas->Bind(wxEVT_RIGHT_DOWN, &MainWindow::OnMouseRight, this);
 	m_render_canvas->Bind(wxEVT_RIGHT_UP, &MainWindow::OnMouseRight, this);
+	for (const auto eventType : {wxEVT_LEFT_DCLICK, wxEVT_RIGHT_DCLICK, wxEVT_MIDDLE_DOWN, wxEVT_MIDDLE_UP, wxEVT_MIDDLE_DCLICK,
+								 wxEVT_AUX1_DOWN, wxEVT_AUX1_UP, wxEVT_AUX1_DCLICK, wxEVT_AUX2_DOWN, wxEVT_AUX2_UP, wxEVT_AUX2_DCLICK})
+		m_render_canvas->Bind(eventType, &MainWindow::OnMouseButton, this);
 
 	m_render_canvas->Bind(wxEVT_GESTURE_PAN, &MainWindow::OnGesturePan, this);
 
@@ -1638,6 +1948,7 @@ void MainWindow::CreateCanvas()
 
 void MainWindow::DestroyCanvas()
 {
+	SetMouseCaptured(false);
 	if (m_padView)
 	{
 		m_padView->DestroyCanvas();
@@ -1665,6 +1976,9 @@ void MainWindow::OnSizeEvent(wxSizeEvent& event)
 	g_window_info.phys_width = ToPhys(client_size.GetWidth());
 	g_window_info.phys_height = ToPhys(client_size.GetHeight());
 	g_window_info.dpi_scale = GetDPIScaleFactor();
+
+	if (m_mouse_captured)
+		CallAfter([this]() { if (m_mouse_captured) ClipCapturedMouse(); });
 
 	if (m_debugger_window && m_debugger_window->IsShown())
 		m_debugger_window->OnParentMove(GetPosition(), event.GetSize());
@@ -1697,6 +2011,9 @@ void MainWindow::OnMove(wxMoveEvent& event)
 	#ifdef ENABLE_VULKAN
 	VsyncDriver_notifyWindowPosChanged();
 	#endif
+
+	if (m_mouse_captured)
+		ClipCapturedMouse();
 }
 
 void MainWindow::OnDebuggerClose(wxCloseEvent& event)
@@ -1734,6 +2051,20 @@ void MainWindow::OnMemorySearcherClose(wxCloseEvent& event)
 
 void MainWindow::OnMouseWheel(wxMouseEvent& event)
 {
+	if (m_mouse_captured)
+	{
+		if (event.GetWheelAxis() == wxMOUSE_WHEEL_VERTICAL && event.GetWheelDelta() > 0)
+		{
+			// high resolution wheels send fractions of a notch
+			m_mouse_wheel_remainder += event.GetWheelRotation();
+			const sint32 notches = m_mouse_wheel_remainder / event.GetWheelDelta();
+			m_mouse_wheel_remainder -= notches * event.GetWheelDelta();
+			if (notches != 0)
+				g_window_info.add_hidmousemotion(0, 0, notches);
+		}
+		event.Skip();
+		return;
+	}
 	const float delta = event.GetWheelRotation(); // in 120 steps -> max reached ~480 (?)
 	auto& instance = InputManager::instance();
 	instance.m_mouse_wheel = (delta / 120.0f);
@@ -1845,6 +2176,22 @@ bool MainWindow::IsMenuHidden() const
 
 void MainWindow::OnTimer(wxTimerEvent& event)
 {
+	// the notice also shows when the game opens the USB keyboard
+	const bool usbKeyboardOpen = g_window_info.is_hidkeyboardopen();
+	if (usbKeyboardOpen && !m_usb_keyboard_open)
+		ShowUSBInputNotice();
+	m_usb_keyboard_open = usbKeyboardOpen;
+
+	if (m_mouse_captured)
+	{
+		// the title closed the mouse
+		if (!g_window_info.hid_mouse_active)
+			SetMouseCaptured(false);
+		else
+			ClipCapturedMouse(); // the system resets the clipping rectangle in some cases
+		return;
+	}
+
 	if (!IsFullScreen() || m_menu_visible)
 		return;
 
@@ -2246,9 +2593,19 @@ void MainWindow::RecreateMenu()
 	m_memorySearcherMenuItem->Enable(false);
 	toolsMenu->Append(MAINFRAME_MENU_ID_TOOLS_TITLE_MANAGER, _("&Title Manager"));
 	toolsMenu->Append(MAINFRAME_MENU_ID_TOOLS_DOWNLOAD_MANAGER, _("&Download Manager"));
-	toolsMenu->Append(MAINFRAME_MENU_ID_TOOLS_EMULATED_USB_DEVICES, _("&Emulated USB Devices"));
 
 	m_menuBar->Append(toolsMenu, _("&Tools"));
+
+	// usb devices submenu
+	auto* usbDevicesMenu = new wxMenu();
+	usbDevicesMenu->AppendCheckItem(MAINFRAME_MENU_ID_USB_MOUSE, GetUSBMouseLabel());
+	usbDevicesMenu->AppendCheckItem(MAINFRAME_MENU_ID_USB_KEYBOARD, GetUSBKeyboardLabel());
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_SETTINGS, _("More &settings..."));
+	usbDevicesMenu->AppendSeparator();
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_SKYLANDERS, _("&Skylanders Portal"));
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_INFINITY, _("&Infinity Base"));
+	usbDevicesMenu->Append(MAINFRAME_MENU_ID_USB_DIMENSIONS, _("&Dimensions Toypad"));
+	m_menuBar->Append(usbDevicesMenu, _("&USB Devices"));
 
 	// cpu timer speed menu
 	wxMenu* timerSpeedMenu = new wxMenu();
@@ -2295,6 +2652,8 @@ void MainWindow::RecreateMenu()
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NFC), _("nfc API"))->Check(cemuLog_isLoggingEnabled(LogType::NFC));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NTAG), _("ntag API"))->Check(cemuLog_isLoggingEnabled(LogType::NTAG));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::Socket), _("nsysnet API"))->Check(cemuLog_isLoggingEnabled(LogType::Socket));
+	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NSYSHID), _("nsyshid API"))->Check(cemuLog_isLoggingEnabled(LogType::NSYSHID));
+	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::NSYSKBD), _("nsyskbd API"))->Check(cemuLog_isLoggingEnabled(LogType::NSYSKBD));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::H264), _("h264 API"))->Check(cemuLog_isLoggingEnabled(LogType::H264));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::GX2), _("gx2 API"))->Check(cemuLog_isLoggingEnabled(LogType::GX2));
 	logCosModulesMenu->AppendCheckItem(MAINFRAME_MENU_ID_DEBUG_LOGGING0 + stdx::to_underlying(LogType::SWKBD), _("swkbd API"))->Check(cemuLog_isLoggingEnabled(LogType::SWKBD));

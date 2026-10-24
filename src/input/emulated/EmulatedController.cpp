@@ -177,10 +177,18 @@ MotionSample EmulatedController::get_second_motion_data() const
 	return {};
 }
 
+static bool has_position_for_type(const ControllerPtr& controller, EmulatedController::Type type)
+{
+	// SDL touchpads drive the GamePad touchscreen, not the Wii Remote pointer
+	if (controller->api() == InputAPI::SDLController && type != EmulatedController::Type::VPAD)
+		return false;
+	return controller->has_position();
+}
+
 bool EmulatedController::has_position() const
 {
 	std::shared_lock lock(m_mutex);
-	return std::any_of(m_controllers.cbegin(), m_controllers.cend(), [](const auto& c) {return c->has_position(); });
+	return std::any_of(m_controllers.cbegin(), m_controllers.cend(), [this](const auto& c) {return has_position_for_type(c, type()); });
 }
 
 glm::vec2 EmulatedController::get_position() const
@@ -188,7 +196,7 @@ glm::vec2 EmulatedController::get_position() const
 	std::shared_lock lock(m_mutex);
 	for (const auto& controller : m_controllers)
 	{
-		if (controller->has_position())
+		if (has_position_for_type(controller, type()))
 			return controller->get_position();
 	}
 
@@ -200,7 +208,7 @@ glm::vec2 EmulatedController::get_prev_position() const
 	std::shared_lock lock(m_mutex);
 	for (const auto& controller : m_controllers)
 	{
-		if (controller->has_position())
+		if (has_position_for_type(controller, type()))
 			return controller->get_prev_position();
 	}
 
@@ -212,7 +220,7 @@ PositionVisibility EmulatedController::GetPositionVisibility() const
 	std::shared_lock lock(m_mutex);
 	for (const auto& controller : m_controllers)
 	{
-		if (controller->has_position())
+		if (has_position_for_type(controller, type()))
 			return controller->GetPositionVisibility();
 	}
 	return PositionVisibility::NONE;

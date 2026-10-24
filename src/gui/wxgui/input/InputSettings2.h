@@ -10,20 +10,25 @@
 
 struct ControllerPage;
 class ControllerBase;
+class wxStaticText;
+class wxPanel;
 
 class InputSettings2 : public wxDialog
 {
 public:
-	InputSettings2(wxWindow* parent);
+	InputSettings2(wxWindow* parent, bool show_hotkeys = false);
 	~InputSettings2();
+	bool configure_dsu_motion();
 
 private:
 	const wxString kDefaultProfileName = _("<profile name>");
 
 	wxNotebook* m_notebook;
 	wxTimer* m_timer;
+	wxPanel* m_usb_input_notice;
+	wxStaticText* m_usb_input_text;
 
-	wxBitmap m_connected, m_disconnected, m_low_battery;
+	wxBitmap m_low_battery;
 
 	wxWindow* initialize_page(size_t index);
 
@@ -33,6 +38,7 @@ private:
 	bool has_settings(InputAPI::Type type);
 	ControllerPage& get_current_page_data() const;
 	void update_state();
+	void update_usb_input_notice();
 
 	boost::signals2::connection m_controller_changed;
 	void on_controller_changed();

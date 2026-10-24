@@ -18,7 +18,7 @@ ControllerState KeyboardController::raw_state()
 {
 	ControllerState result{};
 
-	if (WindowSystem::GetWindowInfo().debugger_focused)
+	if (WindowSystem::GetWindowInfo().debugger_focused || WindowSystem::GetWindowInfo().is_hidkeyboardopen())
 		return result;
 
 	boost::container::small_vector<uint32, 16> pressedKeys;

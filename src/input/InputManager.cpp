@@ -1,4 +1,5 @@
 #include "input/InputManager.h"
+#include "WindowSystem.h"
 #include "config/ActiveSettings.h"
 #include "input/ControllerFactory.h"
 #include <boost/property_tree/ini_parser.hpp>
@@ -823,6 +824,19 @@ bool InputManager::is_valid_profilename(const std::string& name)
 	return true;
 }
 
+void InputManager::reset_mouse_input()
+{
+	for (auto* mouse : {&m_main_mouse, &m_pad_mouse})
+	{
+		std::unique_lock lock(mouse->m_mutex);
+		mouse->left_down = false;
+		mouse->right_down = false;
+		mouse->left_down_toggle = false;
+		mouse->right_down_toggle = false;
+	}
+	m_mouse_wheel = 0.0f;
+}
+
 glm::ivec2 InputManager::get_mouse_position(bool pad_window) const
 {
 	if (pad_window)
@@ -842,6 +856,7 @@ std::optional<glm::ivec2> InputManager::get_left_down_mouse_info(bool* is_pad)
 	if (is_pad)
 		*is_pad = false;
 
+	if (!WindowSystem::GetWindowInfo().hid_mouse_captured)
 	{
 		std::unique_lock lock(m_main_mouse.m_mutex);
 		if (std::exchange(m_main_mouse.left_down_toggle, false))
@@ -863,6 +878,7 @@ std::optional<glm::ivec2> InputManager::get_left_down_mouse_info(bool* is_pad)
 	if (is_pad)
 		*is_pad = true;
 
+	if (!WindowSystem::GetWindowInfo().hid_mouse_captured)
 	{
 		std::unique_lock lock(m_pad_mouse.m_mutex);
 		if (std::exchange(m_pad_mouse.left_down_toggle, false))
@@ -889,6 +905,7 @@ std::optional<glm::ivec2> InputManager::get_right_down_mouse_info(bool* is_pad)
 	if (is_pad)
 		*is_pad = false;
 
+	if (!WindowSystem::GetWindowInfo().hid_mouse_captured)
 	{
 		std::unique_lock lock(m_main_mouse.m_mutex);
 		if (std::exchange(m_main_mouse.right_down_toggle, false))
@@ -910,6 +927,7 @@ std::optional<glm::ivec2> InputManager::get_right_down_mouse_info(bool* is_pad)
 	if (is_pad)
 		*is_pad = true;
 
+	if (!WindowSystem::GetWindowInfo().hid_mouse_captured)
 	{
 		std::unique_lock lock(m_pad_mouse.m_mutex);
 		if (std::exchange(m_pad_mouse.right_down_toggle, false))

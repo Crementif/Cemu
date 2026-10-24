@@ -1,4 +1,6 @@
 #include "EmulatedUSBDeviceFrame.h"
+#include "wxgui/MainWindow.h"
+#include "wxgui/input/InputSettings2.h"
 
 #include <algorithm>
 
@@ -19,6 +21,7 @@
 #include <wx/combobox.h>
 #include <wx/filedlg.h>
 #include <wx/log.h>
+#include <wx/hyperlink.h>
 #include <wx/msgdlg.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
@@ -43,10 +46,12 @@ EmulatedUSBDeviceFrame::EmulatedUSBDeviceFrame(wxWindow* parent)
 
 	auto* sizer = new wxBoxSizer(wxVERTICAL);
 	auto* notebook = new wxNotebook(this, wxID_ANY);
+	m_notebook = notebook;
 
 	notebook->AddPage(AddSkylanderPage(notebook), _("Skylanders Portal"));
 	notebook->AddPage(AddInfinityPage(notebook), _("Infinity Base"));
 	notebook->AddPage(AddDimensionsPage(notebook), _("Dimensions Toypad"));
+	notebook->AddPage(AddMouseKeyboardPage(notebook), _("Mouse && Keyboard"));
 
 	sizer->Add(notebook, 1, wxEXPAND | wxALL, 2);
 
@@ -56,6 +61,11 @@ EmulatedUSBDeviceFrame::EmulatedUSBDeviceFrame(wxWindow* parent)
 }
 
 EmulatedUSBDeviceFrame::~EmulatedUSBDeviceFrame() {}
+
+void EmulatedUSBDeviceFrame::SelectPage(Page page)
+{
+	m_notebook->SetSelection(static_cast<size_t>(page));
+}
 
 wxPanel* EmulatedUSBDeviceFrame::AddSkylanderPage(wxNotebook* notebook)
 {
@@ -118,6 +128,69 @@ wxPanel* EmulatedUSBDeviceFrame::AddInfinityPage(wxNotebook* notebook)
 	boxSizer->Add(AddInfinityRow("Player Two Ability Two", 8, box), 1, wxEXPAND | wxALL, 2);
 
 	panelSizer->Add(boxSizer, 1, wxEXPAND | wxALL, 2);
+	panel->SetSizerAndFit(panelSizer);
+
+	return panel;
+}
+
+wxPanel* EmulatedUSBDeviceFrame::AddMouseKeyboardPage(wxNotebook* notebook)
+{
+	auto* panel = new wxPanel(notebook);
+	auto* panelSizer = new wxBoxSizer(wxVERTICAL);
+	auto* description = new wxStaticText(panel, wxID_ANY,
+		_("Sends input directly to games and homebrew that support USB mice or keyboards."));
+	description->Wrap(FromDIP(480));
+	panelSizer->Add(description, 0, wxALL, 8);
+
+	// the hotkeys and the USB Devices menu can change these too
+	m_emulateMouse = new wxCheckBox(panel, wxID_ANY, MainWindow::GetUSBMouseLabel());
+	m_emulateMouse->SetValue(GetConfig().emulated_usb_devices.emulate_mouse);
+	m_emulateMouse->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+		static_cast<MainWindow*>(GetParent())->SetUSBMouseEnabled(m_emulateMouse->IsChecked());
+	});
+	m_emulateMouse->Bind(wxEVT_UPDATE_UI, [](wxUpdateUIEvent& event)
+	{
+		event.Check(GetConfig().emulated_usb_devices.emulate_mouse);
+		event.SetText(MainWindow::GetUSBMouseLabel());
+	});
+	panelSizer->Add(m_emulateMouse, 0, wxEXPAND | wxALL, 2);
+	panelSizer->Add(new wxStaticText(panel, wxID_ANY,
+		_("Once the game uses the USB mouse, click its window to capture it.\nTurn this off to restore mouse touch and motion.")), 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+
+	m_emulateKeyboard = new wxCheckBox(panel, wxID_ANY, MainWindow::GetUSBKeyboardLabel());
+	m_emulateKeyboard->SetValue(GetConfig().emulated_usb_devices.emulate_keyboard);
+	m_emulateKeyboard->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+		static_cast<MainWindow*>(GetParent())->SetUSBKeyboardEnabled(m_emulateKeyboard->IsChecked());
+	});
+	m_emulateKeyboard->Bind(wxEVT_UPDATE_UI, [](wxUpdateUIEvent& event)
+	{
+		event.Check(GetConfig().emulated_usb_devices.emulate_keyboard);
+		event.SetText(MainWindow::GetUSBKeyboardLabel());
+	});
+	panelSizer->Add(m_emulateKeyboard, 0, wxEXPAND | wxALL, 2);
+	panelSizer->Add(new wxStaticText(panel, wxID_ANY,
+		_("Keyboard controls and hotkeys are paused while the game uses the keyboard.\nThe USB mouse and keyboard hotkeys still work.")), 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+
+	auto* hotkeyLink = new wxHyperlinkCtrl(panel, wxID_ANY, _("Change hotkeys"), wxEmptyString);
+	hotkeyLink->Bind(wxEVT_HYPERLINK, [this](wxHyperlinkEvent&)
+	{
+		auto* settings = new InputSettings2(this, true);
+		settings->ShowModal();
+		settings->Destroy();
+	});
+	panelSizer->Add(hotkeyLink, 0, wxALL, 8);
+
+	auto* mappingSizer = new wxBoxSizer(wxHORIZONTAL);
+	mappingSizer->Add(new wxStaticText(panel, wxID_ANY, _("For GamePad button mappings:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+	auto* inputLink = new wxHyperlinkCtrl(panel, wxID_ANY, _("Input settings"), wxEmptyString);
+	inputLink->Bind(wxEVT_HYPERLINK, [this](wxHyperlinkEvent&)
+	{
+		auto* settings = new InputSettings2(this);
+		settings->ShowModal();
+		settings->Destroy();
+	});
+	mappingSizer->Add(inputLink, 0, wxALIGN_CENTER_VERTICAL);
+	panelSizer->Add(mappingSizer, 0, wxALL, 8);
 	panel->SetSizerAndFit(panelSizer);
 
 	return panel;
@@ -335,12 +408,13 @@ CreateSkylanderDialog::CreateSkylanderDialog(wxWindow* parent, uint8 slot)
 	auto* comboRow = new wxBoxSizer(wxHORIZONTAL);
 
 	auto* comboBox = new wxComboBox(this, wxID_ANY);
-	comboBox->Append("---Select---", reinterpret_cast<void*>(0xFFFFFFFF));
+	comboBox->Append("---Select---");
+	std::vector<uint32> variants; // follows the placeholder entry
 	wxArrayString filterlist;
 	for (const auto& it : nsyshid::g_skyportal.GetListSkylanders())
 	{
-		const uint32 variant = uint32(uint32(it.first.first) << 16) | uint32(it.first.second);
-		comboBox->Append(it.second, reinterpret_cast<void*>(variant));
+		variants.push_back(uint32(uint32(it.first.first) << 16) | uint32(it.first.second));
+		comboBox->Append(it.second);
 		filterlist.Add(it.second);
 	}
 	comboBox->SetSelection(0);
@@ -406,12 +480,13 @@ CreateSkylanderDialog::CreateSkylanderDialog(wxWindow* parent, uint8 slot)
 		this->EndModal(0);
 	});
 
-	comboBox->Bind(wxEVT_COMBOBOX, [comboBox, editId, editVar, this](wxCommandEvent&) {
-		const uint64 sky_info = reinterpret_cast<uint64>(comboBox->GetClientData(comboBox->GetSelection()));
-		if (sky_info != 0xFFFFFFFF)
+	comboBox->Bind(wxEVT_COMBOBOX, [comboBox, editId, editVar, variants = std::move(variants)](wxCommandEvent&) {
+		const sint32 selection = comboBox->GetSelection();
+		if (selection > 0)
 		{
-			const uint16 skyId = sky_info >> 16;
-			const uint16 skyVar = sky_info & 0xFFFF;
+			const uint32 variant = variants[selection - 1];
+			const uint16 skyId = variant >> 16;
+			const uint16 skyVar = variant & 0xFFFF;
 
 			editId->SetValue(wxString::Format(wxT("%i"), skyId));
 			editVar->SetValue(wxString::Format(wxT("%i"), skyVar));
@@ -516,7 +591,8 @@ CreateInfinityFigureDialog::CreateInfinityFigureDialog(wxWindow* parent, uint8 s
 	auto* comboRow = new wxBoxSizer(wxHORIZONTAL);
 
 	auto* comboBox = new wxComboBox(this, wxID_ANY);
-	comboBox->Append("---Select---", reinterpret_cast<void*>(0xFFFFFF));
+	comboBox->Append("---Select---");
+	std::vector<uint32> figures; // follows the placeholder entry
 	wxArrayString filterlist;
 	for (const auto& it : nsyshid::g_infinitybase.GetFigureList())
 	{
@@ -528,7 +604,8 @@ CreateInfinityFigureDialog::CreateInfinityFigureDialog(wxWindow* parent, uint8 s
 			((slot == 4 || slot == 5 || slot == 7 || slot == 8) &&
 			 (figure > 0x2DC6C0 && figure < 0x3D08FF)))
 		{
-			comboBox->Append(it.second.second, reinterpret_cast<void*>(figure));
+			figures.push_back(figure);
+			comboBox->Append(it.second.second);
 			filterlist.Add(it.second.second);
 		}
 	}
@@ -582,11 +659,11 @@ CreateInfinityFigureDialog::CreateInfinityFigureDialog(wxWindow* parent, uint8 s
 		this->EndModal(0);
 	});
 
-	comboBox->Bind(wxEVT_COMBOBOX, [comboBox, editFigNum, this](wxCommandEvent&) {
-		const uint64 fig_info = reinterpret_cast<uint64>(comboBox->GetClientData(comboBox->GetSelection()));
-		if (fig_info != 0xFFFFFF)
+	comboBox->Bind(wxEVT_COMBOBOX, [comboBox, editFigNum, figures = std::move(figures)](wxCommandEvent&) {
+		const sint32 selection = comboBox->GetSelection();
+		if (selection > 0)
 		{
-			const uint32 figNum = fig_info & 0xFFFFFFFF;
+			const uint32 figNum = figures[selection - 1];
 
 			editFigNum->SetValue(wxString::Format(wxT("%i"), figNum));
 		}
@@ -695,12 +772,13 @@ CreateDimensionFigureDialog::CreateDimensionFigureDialog(wxWindow* parent)
 	auto* comboRow = new wxBoxSizer(wxHORIZONTAL);
 
 	auto* comboBox = new wxComboBox(this, wxID_ANY);
-	comboBox->Append("---Select---", reinterpret_cast<void*>(0xFFFFFFFF));
+	comboBox->Append("---Select---");
+	std::vector<uint32> figures; // follows the placeholder entry
 	wxArrayString filterlist;
 	for (const auto& it : nsyshid::g_dimensionstoypad.GetListMinifigs())
 	{
-		const uint32 figure = it.first;
-		comboBox->Append(it.second, reinterpret_cast<void*>(figure));
+		figures.push_back(it.first);
+		comboBox->Append(it.second);
 		filterlist.Add(it.second);
 	}
 	comboBox->SetSelection(0);
@@ -753,11 +831,11 @@ CreateDimensionFigureDialog::CreateDimensionFigureDialog(wxWindow* parent)
 		this->EndModal(0);
 	});
 
-	comboBox->Bind(wxEVT_COMBOBOX, [comboBox, editFigNum, this](wxCommandEvent&) {
-		const uint64 fig_info = reinterpret_cast<uint64>(comboBox->GetClientData(comboBox->GetSelection()));
-		if (fig_info != 0xFFFF)
+	comboBox->Bind(wxEVT_COMBOBOX, [comboBox, editFigNum, figures = std::move(figures)](wxCommandEvent&) {
+		const sint32 selection = comboBox->GetSelection();
+		if (selection > 0)
 		{
-			const uint16 figNum = fig_info & 0xFFFF;
+			const uint16 figNum = figures[selection - 1] & 0xFFFF;
 
 			editFigNum->SetValue(wxString::Format(wxT("%i"), figNum));
 		}

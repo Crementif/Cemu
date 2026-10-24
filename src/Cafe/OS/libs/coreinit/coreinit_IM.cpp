@@ -55,6 +55,24 @@ namespace coreinit
 		osLib_returnFromFunction(hCPU, IM_ERROR_NONE);
 	}
 
+	constexpr sint32 IM_PLACEHOLDER_HANDLE = 1;
+
+	sint32 IM_Open()
+	{
+		return IM_PLACEHOLDER_HANDLE;
+	}
+
+	sint32 IM_Close(sint32 imHandle)
+	{
+		return IM_ERROR_NONE;
+	}
+
+	// used by nsyskbd.rpl, who uses it to report keyboard activity
+	sint32 IM_SetDeviceState(sint32 imHandle, MPTR ipcBuf, uint32 state, MPTR callback, MPTR context)
+	{
+		return IM_ERROR_NONE;
+	}
+
 	void coreinitExport_IM_GetParameter(PPCInterpreter_t* hCPU)
 	{
 		cemuLog_logDebug(LogType::Force, "IM_GetParameter()");
@@ -132,6 +150,9 @@ namespace coreinit
 		osLib_addFunction("coreinit", "IM_GetHomeButtonParams", coreinitExport_IM_GetHomeButtonParams);
 		osLib_addFunction("coreinit", "IM_GetParameter", coreinitExport_IM_GetParameter);
 		osLib_addFunction("coreinit", "IM_GetRuntimeParameter", coreinitExport_IM_GetRuntimeParameter);
+		cafeExportRegister("coreinit", IM_Open, LogType::Placeholder);
+		cafeExportRegister("coreinit", IM_Close, LogType::Placeholder);
+		cafeExportRegister("coreinit", IM_SetDeviceState, LogType::Placeholder);
 	}
 
 };

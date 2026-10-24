@@ -12,7 +12,7 @@ class wxInputDraw;
 class DefaultControllerSettings : public wxDialog
 {
 public:
-	DefaultControllerSettings(wxWindow* parent, const wxPoint& position, ControllerPtr controller);
+	DefaultControllerSettings(wxWindow* parent, const wxPoint& position, ControllerPtr controller, bool show_options = true);
 	~DefaultControllerSettings();
 
 private:
@@ -28,7 +28,7 @@ private:
 	wxSlider* m_axis_deadzone, *m_axis_range;
 	wxSlider* m_rotation_deadzone, *m_rotation_range;
 	wxSlider* m_trigger_deadzone, *m_trigger_range;
-	wxSlider* m_rumble;
+	wxSlider* m_rumble = nullptr;
 
 	wxCheckBox* m_use_motion = nullptr;
 

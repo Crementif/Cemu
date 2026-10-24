@@ -20,7 +20,7 @@ public:
 
 	std::vector<std::shared_ptr<ControllerBase>> get_controllers() override;
 	
-	int get_index(size_t guid_index, const SDL_GUID& guid) const;
+	SDL_JoystickID get_gamepad_id(size_t guid_index, const SDL_GUID& guid) const;
 
 	MotionSample motion_sample(SDL_JoystickID diid);
 
