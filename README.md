@@ -1,4 +1,6 @@
-# **Cemu - Wii U emulator**
+# **BetterVR's Cemu version**
+
+This is the version of Cemu that BetterVR is built on. BetterVR's actual code can be found at [Crementif/BotW-BetterVR](https://github.com/Crementif/BotW-BetterVR).
 
 [![Build Process](https://github.com/cemu-project/Cemu/actions/workflows/build.yml/badge.svg)](https://github.com/cemu-project/Cemu/actions/workflows/build.yml)
 [![Discord](https://img.shields.io/discord/286429969104764928?label=Cemu&logo=discord&logoColor=FFFFFF)](https://discord.gg/5psYsup)
