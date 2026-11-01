@@ -191,6 +191,60 @@ bool GraphicPack2::DeactivateGraphicPack(const std::shared_ptr<GraphicPack2>& gr
 	return true;
 }
 
+std::vector<GraphicPackPtr> GraphicPack2::SetEnabledWithDependencies(const GraphicPackPtr& graphicPack, bool state)
+{
+	std::vector<GraphicPackPtr> changed;
+	std::vector<GraphicPackPtr> toEnable, toDisable;
+	(state ? toEnable : toDisable).emplace_back(graphicPack);
+
+	while (!toEnable.empty())
+	{
+		const auto gp = toEnable.back();
+		toEnable.pop_back();
+		if (gp->IsEnabled())
+			continue;
+		gp->SetEnabled(true);
+		if (gp != graphicPack)
+			changed.emplace_back(gp);
+
+		for (const auto& path : gp->m_dependsOn)
+		{
+			const auto candidates = gp->FindPacksByPath(path);
+			if (std::any_of(candidates.begin(), candidates.end(), [](const GraphicPackPtr& c) { return c->IsEnabled(); }))
+				continue;
+			const auto it = std::find_if(candidates.begin(), candidates.end(), [](const GraphicPackPtr& c) { return c->GetMissingDependencies().empty(); });
+			if (it != candidates.end())
+				toEnable.emplace_back(*it);
+		}
+		for (const auto& other : s_graphic_packs)
+		{
+			if (other->IsEnabled() && gp->ConflictsWith(*other))
+				toDisable.emplace_back(other);
+		}
+	}
+
+	while (!toDisable.empty())
+	{
+		const auto gp = toDisable.back();
+		toDisable.pop_back();
+		if (!gp->IsEnabled())
+			continue;
+		gp->SetEnabled(false);
+		if (gp != graphicPack)
+			changed.emplace_back(gp);
+
+		for (const auto& other : s_graphic_packs)
+		{
+			if (!other->IsEnabled() || !other->SharesTitleWith(*gp))
+				continue;
+			const bool dependsOnGp = std::any_of(other->m_dependsOn.begin(), other->m_dependsOn.end(), [&gp](const std::string& path) { return boost::iequals(path, gp->m_virtualPath); });
+			if (dependsOnGp && other->GetUnmetDependency())
+				toDisable.emplace_back(other);
+		}
+	}
+	return changed;
+}
+
 void GraphicPack2::ActivateForCurrentTitle()
 {
 	uint64 titleId = CafeSystem::GetForegroundTitleId();
@@ -202,6 +256,12 @@ void GraphicPack2::ActivateForCurrentTitle()
 
 		if (!gp->ContainsTitleId(titleId))
 			continue;
+
+		if (auto unmet = gp->GetUnmetDependency(titleId))
+		{
+			cemuLog_log(LogType::Force, "Graphic pack \"{}\" not activated: requires \"{}\"", gp->GetVirtualPath(), *unmet);
+			continue;
+		}
 
 		if (GraphicPack2::ActivateGraphicPack(gp))
 		{
@@ -361,6 +421,11 @@ GraphicPack2::GraphicPack2(fs::path rulesPath, IniParser& rules)
 	m_title_ids = ParseTitleIds(rules, "titleIds");
 	if(m_title_ids.empty() && !m_universal)
 		throw std::exception();
+
+	if (auto option_dependsOn = rules.FindOption("dependsOn"))
+		m_dependsOn = ParseStringArray(*option_dependsOn);
+	if (auto option_conflictsWith = rules.FindOption("conflictsWith"))
+		m_conflictsWith = ParseStringArray(*option_conflictsWith);
 
 	auto option_fsPriority = rules.FindOption("fsPriority");
 	if (option_fsPriority)
@@ -601,6 +666,68 @@ bool GraphicPack2::ContainsTitleId(uint64_t title_id) const
 
 	const auto it = std::find_if(m_title_ids.begin(), m_title_ids.end(), [title_id](uint64 id) { return id == title_id; });
 	return it != m_title_ids.end();
+}
+
+bool GraphicPack2::SharesTitleWith(const GraphicPack2& other) const
+{
+	if (m_universal || other.m_universal)
+		return true;
+	return std::any_of(m_title_ids.begin(), m_title_ids.end(), [&other](uint64 id) { return other.ContainsTitleId(id); });
+}
+
+std::vector<GraphicPackPtr> GraphicPack2::FindPacksByPath(std::string_view virtualPath) const
+{
+	std::vector<GraphicPackPtr> result;
+	for (const auto& gp : s_graphic_packs)
+	{
+		if (gp.get() != this && boost::iequals(gp->GetVirtualPath(), virtualPath) && SharesTitleWith(*gp))
+			result.emplace_back(gp);
+	}
+	return result;
+}
+
+std::vector<std::string> GraphicPack2::GetMissingDependencies(sint32 depth) const
+{
+	std::vector<std::string> result;
+	if (depth > 8)
+		return result;
+	for (const auto& path : m_dependsOn)
+	{
+		const auto candidates = FindPacksByPath(path);
+		if (std::none_of(candidates.begin(), candidates.end(), [depth](const GraphicPackPtr& gp) { return gp->GetMissingDependencies(depth + 1).empty(); }))
+			result.emplace_back(path);
+	}
+	return result;
+}
+
+std::optional<std::string> GraphicPack2::GetUnmetDependency(std::optional<uint64> titleId) const
+{
+	for (const auto& path : m_dependsOn)
+	{
+		const auto candidates = FindPacksByPath(path);
+		const bool met = std::any_of(candidates.begin(), candidates.end(), [titleId](const GraphicPackPtr& gp)
+			{
+				return gp->IsEnabled() && (!titleId || gp->ContainsTitleId(*titleId));
+			});
+		if (!met)
+			return path;
+	}
+	return std::nullopt;
+}
+
+bool GraphicPack2::ConflictsWith(const GraphicPack2& other) const
+{
+	auto listsPack = [](const GraphicPack2& a, const GraphicPack2& b)
+	{
+		return std::any_of(a.m_conflictsWith.begin(), a.m_conflictsWith.end(), [&b](const std::string& path) { return boost::iequals(path, b.m_virtualPath); });
+	};
+	return this != &other && SharesTitleWith(other) && (listsPack(*this, other) || listsPack(other, *this));
+}
+
+GraphicPackPtr GraphicPack2::GetEnabledConflict() const
+{
+	const auto it = std::find_if(s_graphic_packs.begin(), s_graphic_packs.end(), [this](const GraphicPackPtr& gp) { return gp->IsEnabled() && ConflictsWith(*gp); });
+	return it != s_graphic_packs.end() ? *it : nullptr;
 }
 
 bool GraphicPack2::HasActivePreset() const
@@ -1278,6 +1405,18 @@ std::vector<uint64> GraphicPack2::ParseTitleIds(IniParser& rules, const char* op
 		catch (const std::invalid_argument&) {}
 	}
 
+	return result;
+}
+
+std::vector<std::string> GraphicPack2::ParseStringArray(std::string_view value)
+{
+	std::vector<std::string> result;
+	const auto tokens = TokenizeView(value, '\"');
+	for (size_t i = 0; i < tokens.size(); i += 2)
+	{
+		if (!tokens[i].empty())
+			result.emplace_back(tokens[i]);
+	}
 	return result;
 }
 

@@ -44,7 +44,7 @@ private:
 	wxTextCtrl* m_filter_text;
 	wxCheckBox* m_installed_games_only;
 
-	wxStaticText* m_graphic_pack_name, *m_graphic_pack_description;
+	wxStaticText* m_graphic_pack_name, *m_graphic_pack_description, *m_graphic_pack_dependencies;
 	wxBoxSizer* m_preset_sizer;
 	std::vector<wxChoice*> m_active_preset;
 	wxButton* m_reload_shaders;
@@ -60,6 +60,9 @@ private:
 	wxColour m_incompatible_colour = wxSystemSettings::SelectLightDark(wxColour(0xCC, 0x00, 0x00), wxColour(0xDE, 0x49, 0x49));
 
 	wxTreeItemId FindTreeItem(const wxTreeItemId& root, const wxString& text) const;
+	wxTreeItemId FindTreeItem(const wxTreeItemId& root, const GraphicPackPtr& graphicPack) const;
+	void UpdateItemState(const wxTreeItemId& item) const;
+	void UpdateItemStates(const wxTreeItemId& root) const;
 	void LoadPresetSelections(const GraphicPackPtr& gp);
 
 	void OnTreeSelectionChanged(wxTreeEvent& event);
@@ -74,6 +77,8 @@ private:
 	void OnInstalledGamesChanged(wxCommandEvent& event);
 
 	void SaveStateToConfig();
+
+	bool ApplyEnabledState(const GraphicPackPtr& graphicPack, const wxTreeItemId& item);
 
 	void ReloadPack(const GraphicPackPtr& graphic_pack) const;
 	void DeleteShadersFromRuntimeCache(const GraphicPackPtr& graphic_pack) const;

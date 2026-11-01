@@ -22,14 +22,32 @@
 class wxGraphicPackData : public wxTreeItemData
 {
 public:
-	wxGraphicPackData(GraphicPackPtr pack)
-	 : m_pack(std::move(pack)) {  }
+	wxGraphicPackData(GraphicPackPtr pack, wxString label)
+	 : m_pack(std::move(pack)), m_label(std::move(label)) {  }
 
 	const GraphicPackPtr& GetGraphicPack() const { return m_pack; }
+	const wxString& GetLabel() const { return m_label; }
 
 private:
 	GraphicPackPtr m_pack;
+	wxString m_label;
 };
+
+static bool IsSupportedVersion(sint32 version)
+{
+	return version == 3 || version == 4 || version == 5 || version == 6 || version == GraphicPack2::GFXPACK_VERSION_7 || version == GraphicPack2::GFXPACK_VERSION_8;
+}
+
+static std::string JoinPackNames(const GraphicPackPtr& gp, const std::vector<std::string>& paths)
+{
+	std::vector<std::string> names;
+	for (const auto& path : paths)
+	{
+		const auto packs = gp->FindPacksByPath(path);
+		names.emplace_back(packs.empty() ? std::string(TokenizeView(path, '/').back()) : packs.front()->GetName());
+	}
+	return boost::algorithm::join(names, ", ");
+}
 
 void GraphicPacksWindow2::FillGraphicPackList() const
 {
@@ -124,7 +142,6 @@ void GraphicPacksWindow2::FillGraphicPackList() const
 
 		if(node.IsOk() && node != root)
 		{
-			m_graphic_pack_tree->SetItemData(node, new wxGraphicPackData(p));
 			bool canEnable = true;
 
 			if (p->GetVersion() == 3)
@@ -132,7 +149,7 @@ void GraphicPacksWindow2::FillGraphicPackList() const
 				auto tmp_text = m_graphic_pack_tree->GetItemText(node);
 				m_graphic_pack_tree->SetItemText(node, tmp_text + " (may not be compatible with Vulkan)");
 			}
-			else if (p->GetVersion() != 3 && p->GetVersion() != 4 && p->GetVersion() != 5 && p->GetVersion() != 6 && p->GetVersion() != GraphicPack2::GFXPACK_VERSION_7 && p->GetVersion() != GraphicPack2::GFXPACK_VERSION_8)
+			else if (!IsSupportedVersion(p->GetVersion()))
 			{
 				auto tmp_text = m_graphic_pack_tree->GetItemText(node);
 				m_graphic_pack_tree->SetItemText(node, tmp_text + " (Unsupported version)");
@@ -142,9 +159,15 @@ void GraphicPacksWindow2::FillGraphicPackList() const
 			else if (p->IsActivated())
 				m_graphic_pack_tree->SetItemTextColour(node, m_activated_colour);
 
+			m_graphic_pack_tree->SetItemData(node, new wxGraphicPackData(p, m_graphic_pack_tree->GetItemText(node)));
 			m_graphic_pack_tree->MakeCheckable(node, p->IsEnabled());
 			if (!canEnable)
+			{
 				m_graphic_pack_tree->DisableCheckBox(node);
+				m_graphic_pack_tree->SetItemTextColour(node, m_incompatible_colour);
+			}
+			else
+				UpdateItemState(node);
 		}
 	}
 
@@ -280,6 +303,11 @@ GraphicPacksWindow2::GraphicPacksWindow2(wxWindow* parent, uint64_t title_id_fil
 				m_graphic_pack_description = new wxStaticText(box, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, textStyle);
 				m_graphic_pack_description->SetMinSize(wxSize(0, -1));
 				box_sizer->Add(m_graphic_pack_description, 1, wxEXPAND | wxALL, 5);
+
+				m_graphic_pack_dependencies = new wxStaticText(box, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, textStyle);
+				m_graphic_pack_dependencies->SetMinSize(wxSize(0, -1));
+				m_graphic_pack_dependencies->Hide();
+				box_sizer->Add(m_graphic_pack_dependencies, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
 
 				inner_sizer->Add(box_sizer, 0, wxEXPAND | wxALL, 5);
 			}
@@ -431,6 +459,55 @@ wxTreeItemId GraphicPacksWindow2::FindTreeItem(const wxTreeItemId& root, const w
 	return {};
 }
 
+wxTreeItemId GraphicPacksWindow2::FindTreeItem(const wxTreeItemId& root, const GraphicPackPtr& graphicPack) const
+{
+	wxTreeItemIdValue cookie;
+	for (auto child = m_graphic_pack_tree->GetFirstChild(root, cookie); child.IsOk(); child = m_graphic_pack_tree->GetNextChild(root, cookie))
+	{
+		const auto data = dynamic_cast<wxGraphicPackData*>(m_graphic_pack_tree->GetItemData(child));
+		if (data && data->GetGraphicPack() == graphicPack)
+			return child;
+		if (const auto found = FindTreeItem(child, graphicPack); found.IsOk())
+			return found;
+	}
+	return {};
+}
+
+void GraphicPacksWindow2::UpdateItemState(const wxTreeItemId& item) const
+{
+	const auto data = dynamic_cast<wxGraphicPackData*>(m_graphic_pack_tree->GetItemData(item));
+	if (!data || !IsSupportedVersion(data->GetGraphicPack()->GetVersion()))
+		return;
+
+	const auto& gp = data->GetGraphicPack();
+	wxString suffix;
+	const auto missing = gp->GetMissingDependencies();
+	if (!missing.empty())
+		suffix = formatWxString(" (requires {})", JoinPackNames(gp, missing));
+	else if (const auto unmet = gp->IsEnabled() ? gp->GetUnmetDependency() : std::nullopt)
+		suffix = formatWxString(" (requires {})", JoinPackNames(gp, { *unmet }));
+	else if (const auto conflict = gp->IsEnabled() ? gp->GetEnabledConflict() : nullptr)
+		suffix = formatWxString(" (conflicts with {})", conflict->GetName());
+
+	m_graphic_pack_tree->Check(item, gp->IsEnabled());
+	m_graphic_pack_tree->EnableCheckBox(item, missing.empty() || gp->IsEnabled());
+	m_graphic_pack_tree->SetItemText(item, data->GetLabel() + suffix);
+	if (!suffix.empty())
+		m_graphic_pack_tree->SetItemTextColour(item, m_incompatible_colour);
+	else if (m_graphic_pack_tree->GetItemTextColour(item) == m_incompatible_colour)
+		m_graphic_pack_tree->SetItemTextColour(item, gp->IsActivated() ? m_activated_colour : m_default_colour);
+}
+
+void GraphicPacksWindow2::UpdateItemStates(const wxTreeItemId& root) const
+{
+	wxTreeItemIdValue cookie;
+	for (auto child = m_graphic_pack_tree->GetFirstChild(root, cookie); child.IsOk(); child = m_graphic_pack_tree->GetNextChild(root, cookie))
+	{
+		UpdateItemState(child);
+		UpdateItemStates(child);
+	}
+}
+
 void GraphicPacksWindow2::LoadPresetSelections(const GraphicPackPtr& gp)
 {
 	std::vector<std::string> order;
@@ -506,6 +583,15 @@ void GraphicPacksWindow2::OnTreeSelectionChanged(wxTreeEvent& event)
 					? _("This graphic pack has no description")
 					: wxString::FromUTF8(gp->GetDescription()));
 
+				wxString dependencies;
+				if (!gp->GetDependencies().empty())
+					dependencies << formatWxString(_("Requires: {}"), JoinPackNames(gp, gp->GetDependencies())) << "\n";
+				if (!gp->GetConflicts().empty())
+					dependencies << formatWxString(_("Conflicts with: {}"), JoinPackNames(gp, gp->GetConflicts()));
+				dependencies.Trim();
+				m_graphic_pack_dependencies->SetLabel(dependencies);
+				m_graphic_pack_dependencies->Show(!dependencies.empty());
+
 				LoadPresetSelections(gp);
 				
 				m_reload_shaders->Enable(gp->HasShaders());
@@ -521,6 +607,7 @@ void GraphicPacksWindow2::OnTreeSelectionChanged(wxTreeEvent& event)
 	m_preset_sizer->Clear(true);
 	m_graphic_pack_name->SetLabel(wxEmptyString);
 	m_graphic_pack_description->SetLabel(wxEmptyString);
+	m_graphic_pack_dependencies->Hide();
 
 	m_reload_shaders->Disable();
 
@@ -543,34 +630,27 @@ void GraphicPacksWindow2::OnTreeChoiceChanged(wxTreeEvent& event)
 		return;
 
 	auto& graphic_pack = data->GetGraphicPack();
-	graphic_pack->SetEnabled(state);
+	const auto changed = GraphicPack2::SetEnabledWithDependencies(graphic_pack, state);
 
-	bool requiresRestart = graphic_pack->RequiresRestart(true, false);
-	bool isRunning = CafeSystem::IsTitleRunning() && graphic_pack->ContainsTitleId(CafeSystem::GetForegroundTitleId());
-	if (isRunning)
+	bool restartRequired = ApplyEnabledState(graphic_pack, item);
+	std::vector<std::string> alsoEnabled, alsoDisabled;
+	for (const auto& gp : changed)
 	{
-		if (state)
-		{
-			GraphicPack2::ActivateGraphicPack(graphic_pack);
-			if (!requiresRestart)
-			{
-				ReloadPack(graphic_pack);
-				m_graphic_pack_tree->SetItemTextColour(item, m_activated_colour);
-			}
-		}
-		else
-		{
-			if (!requiresRestart)
-			{
-				DeleteShadersFromRuntimeCache(graphic_pack);
-				m_graphic_pack_tree->SetItemTextColour(item, m_default_colour);
-			}
-			GraphicPack2::DeactivateGraphicPack(graphic_pack);
-		}
+		restartRequired |= ApplyEnabledState(gp, FindTreeItem(m_graphic_pack_tree->GetRootItem(), gp));
+		(gp->IsEnabled() ? alsoEnabled : alsoDisabled).emplace_back(gp->GetName());
 	}
+	UpdateItemStates(m_graphic_pack_tree->GetRootItem());
 
-	if (!m_info_bar->IsShown() && (isRunning && requiresRestart))
-		m_info_bar->ShowMessage(_("Restart of Cemu required for changes to take effect"));
+	wxString message;
+	auto appendMessage = [&message](const wxString& text) { message << (message.empty() ? "" : ". ") << text; };
+	if (!alsoEnabled.empty())
+		appendMessage(formatWxString(_("Also enabled: {}"), boost::algorithm::join(alsoEnabled, ", ")));
+	if (!alsoDisabled.empty())
+		appendMessage(formatWxString(state ? _("Disabled due to conflicts: {}") : _("Also disabled: {}"), boost::algorithm::join(alsoDisabled, ", ")));
+	if (restartRequired && (!message.empty() || !m_info_bar->IsShown()))
+		appendMessage(_("Restart of Cemu required for changes to take effect"));
+	if (!message.empty())
+		m_info_bar->ShowMessage(message);
 
 	// also change selection to activated gp
 	m_graphic_pack_tree->SelectItem(item);
@@ -735,6 +815,37 @@ void GraphicPacksWindow2::UpdateTitleRunning(bool running)
 		m_update_graphicPacks->SetToolTip(nullptr);
 		m_download_from_url->SetToolTip(nullptr);
 	}
+}
+
+bool GraphicPacksWindow2::ApplyEnabledState(const GraphicPackPtr& graphicPack, const wxTreeItemId& item)
+{
+	const bool state = graphicPack->IsEnabled();
+	bool requiresRestart = graphicPack->RequiresRestart(true, false);
+	bool isRunning = CafeSystem::IsTitleRunning() && graphicPack->ContainsTitleId(CafeSystem::GetForegroundTitleId());
+	if (!isRunning)
+		return false;
+
+	if (state)
+	{
+		GraphicPack2::ActivateGraphicPack(graphicPack);
+		if (!requiresRestart)
+		{
+			ReloadPack(graphicPack);
+			if (item.IsOk())
+				m_graphic_pack_tree->SetItemTextColour(item, m_activated_colour);
+		}
+	}
+	else
+	{
+		if (!requiresRestart)
+		{
+			DeleteShadersFromRuntimeCache(graphicPack);
+			if (item.IsOk())
+				m_graphic_pack_tree->SetItemTextColour(item, m_default_colour);
+		}
+		GraphicPack2::DeactivateGraphicPack(graphicPack);
+	}
+	return requiresRestart;
 }
 
 void GraphicPacksWindow2::ReloadPack(const GraphicPackPtr& graphic_pack) const

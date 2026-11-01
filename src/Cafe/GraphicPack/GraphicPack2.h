@@ -128,6 +128,15 @@ public:
 	
 	const std::vector<std::pair<MPTR, GPCallbackType>>& GetCallbacks() const { return m_callbacks; }
 
+	// dependencies
+	const std::vector<std::string>& GetDependencies() const { return m_dependsOn; }
+	const std::vector<std::string>& GetConflicts() const { return m_conflictsWith; }
+	std::vector<std::shared_ptr<GraphicPack2>> FindPacksByPath(std::string_view virtualPath) const;
+	std::vector<std::string> GetMissingDependencies(sint32 depth = 0) const;
+	std::optional<std::string> GetUnmetDependency(std::optional<uint64> titleId = std::nullopt) const;
+	bool ConflictsWith(const GraphicPack2& other) const;
+	std::shared_ptr<GraphicPack2> GetEnabledConflict() const;
+
 	// texture rules
 	const std::vector<TextureRule>& GetTextureRules() const { return m_texture_rules; }
 
@@ -177,6 +186,7 @@ public:
 	static bool LoadGraphicPack(const fs::path& rulesPath, class IniParser& rules);
 	static bool ActivateGraphicPack(const std::shared_ptr<GraphicPack2>& graphic_pack);
 	static bool DeactivateGraphicPack(const std::shared_ptr<GraphicPack2>& graphic_pack);
+	static std::vector<std::shared_ptr<GraphicPack2>> SetEnabledWithDependencies(const std::shared_ptr<GraphicPack2>& graphicPack, bool state);
 	static void ClearGraphicPacks();
 	static void WaitUntilReady(); // wait until all graphic packs finished activation
 
@@ -242,6 +252,9 @@ private:
 	sint32 m_vsync_frequency = -1;
 	sint32 m_fs_priority = 100;
 
+	std::vector<std::string> m_dependsOn;
+	std::vector<std::string> m_conflictsWith;
+
 	struct
 	{
 		LatteTextureView::MagFilter upscale_filter = LatteTextureView::MagFilter::kLinear;
@@ -260,6 +273,8 @@ private:
 	std::unordered_map<std::string, PresetVar> ParsePresetVars(IniParser& rules) const;
 
 	std::vector<uint64> ParseTitleIds(IniParser& rules, const char* option_name);
+	static std::vector<std::string> ParseStringArray(std::string_view value);
+	bool SharesTitleWith(const GraphicPack2& other) const;
 
 	CustomShader LoadShader(const fs::path& path, uint64 shader_base_hash, uint64 shader_aux_hash, GP_SHADER_TYPE shader_type, bool isMetalShader) const;
 	void ApplyShaderPresets(std::string& shader_source) const;
