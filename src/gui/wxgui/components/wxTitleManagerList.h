@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+class TitleInfo;
+
 class wxTitleManagerList : public wxListView
 {
 	friend class TitleManager;
@@ -74,6 +76,7 @@ public:
 		std::vector<uint32> persistent_ids; // only used for save
 	};
 	boost::optional<const TitleEntry&> GetSelectedTitleEntry() const;
+	static TitleEntry CreateTitleEntry(TitleInfo& titleInfo);
 
 private:
 	void AddColumns();

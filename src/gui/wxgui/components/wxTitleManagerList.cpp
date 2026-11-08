@@ -989,13 +989,8 @@ wxString wxTitleManagerList::GetTranslatedTitleEntryType(EntryType type)
 	}
 }
 
-void wxTitleManagerList::HandleTitleListCallback(CafeTitleListCallbackEvent* evt)
+wxTitleManagerList::TitleEntry wxTitleManagerList::CreateTitleEntry(TitleInfo& titleInfo)
 {
-	if (evt->eventType != CafeTitleListCallbackEvent::TYPE::TITLE_DISCOVERED &&
-		evt->eventType != CafeTitleListCallbackEvent::TYPE::TITLE_REMOVED)
-		return;
-
-	auto& titleInfo = *evt->titleInfo;
 	wxTitleManagerList::EntryType entryType;
 	switch (titleInfo.GetTitleType())
 	{
@@ -1035,17 +1030,27 @@ void wxTitleManagerList::HandleTitleListCallback(CafeTitleListCallbackEvent* evt
 		break;
 	}
 
+	TitleEntry entry(entryType, entryFormat, titleInfo.GetPath());
+	entry.location_uid = titleInfo.GetUID();
+	entry.title_id = titleInfo.GetAppTitleId();
+	return entry;
+}
+
+void wxTitleManagerList::HandleTitleListCallback(CafeTitleListCallbackEvent* evt)
+{
+	if (evt->eventType != CafeTitleListCallbackEvent::TYPE::TITLE_DISCOVERED &&
+		evt->eventType != CafeTitleListCallbackEvent::TYPE::TITLE_REMOVED)
+		return;
+
+	auto& titleInfo = *evt->titleInfo;
 	if (evt->eventType == CafeTitleListCallbackEvent::TYPE::TITLE_DISCOVERED)
 	{
 		if (titleInfo.IsCached())
 			return; // the title list only displays non-cached entries
-		wxTitleManagerList::TitleEntry entry(entryType, entryFormat, titleInfo.GetPath());
-
 		ParsedMetaXml* metaInfo = titleInfo.GetMetaInfo();
 		if(titleInfo.IsSystemDataTitle())
 			return; // dont show system data titles for now
-		entry.location_uid = titleInfo.GetUID();
-		entry.title_id = titleInfo.GetAppTitleId();
+		wxTitleManagerList::TitleEntry entry = CreateTitleEntry(titleInfo);
 		std::string name = metaInfo->GetLongName(GetConfig().console_language.GetValue());
 		const auto nl = name.find(L'\n');
 		if (nl != std::string::npos)
@@ -1060,9 +1065,7 @@ void wxTitleManagerList::HandleTitleListCallback(CafeTitleListCallbackEvent* evt
 	}
 	else if (evt->eventType == CafeTitleListCallbackEvent::TYPE::TITLE_REMOVED)
 	{
-		wxTitleManagerList::TitleEntry entry(entryType, entryFormat, titleInfo.GetPath());
-		entry.location_uid = titleInfo.GetUID();
-		entry.title_id = titleInfo.GetAppTitleId();
+		wxTitleManagerList::TitleEntry entry = CreateTitleEntry(titleInfo);
 
 		auto* cmdEvt = new wxCommandEvent(wxEVT_TITLE_REMOVED);
 		cmdEvt->SetClientObject(new wxCustomData(entry));

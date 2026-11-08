@@ -4,6 +4,7 @@
 #include "wxCemuConfig.h"
 #include "util/helpers/helpers.h"
 #include "wxgui/GameProfileWindow.h"
+#include "wxgui/ChecksumTool.h"
 
 #include <numeric>
 
@@ -622,6 +623,9 @@ enum ContextMenuEntries
 	kContextMenuEditGameProfile,
 
 	kContextMenuRemoveCache,
+	kContextMenuVerifyBase,
+	kContextMenuVerifyUpdate,
+	kContextMenuVerifyDLC,
 
 	kContextMenuStyleList,
 	kContextMenuStyleIcon,
@@ -668,6 +672,12 @@ void wxGameList::OnContextMenu(wxContextMenuEvent& event)
 
 			menu.AppendSeparator();
 			menu.Append(kContextMenuRemoveCache, _("&Remove shader caches"))->Enable(!_getCachesPaths(gameInfo.GetBaseTitleId()).empty());
+			wxMenu* verifyMenu = new wxMenu();
+			verifyMenu->SetClientData((void*)title_id);
+			verifyMenu->Append(kContextMenuVerifyBase, _("&Base game"));
+			verifyMenu->Append(kContextMenuVerifyUpdate, _("&Update"))->Enable(gameInfo.HasUpdate());
+			verifyMenu->Append(kContextMenuVerifyDLC, _("&DLC"))->Enable(gameInfo.HasAOC());
+			menu.AppendSubMenu(verifyMenu, _("&Verify integrity of game files"));
 
 			menu.AppendSeparator();
 			menu.Append(kContextMenuEditGraphicPacks, _("&Edit graphic packs"));
@@ -785,6 +795,15 @@ void wxGameList::OnContextMenuSelected(wxCommandEvent& event)
 			case kContextMenuRemoveCache:
 			{
 				RemoveCache(_getCachesPaths(gameInfo.GetBaseTitleId()), gameInfo.GetTitleName());
+				break;
+			}
+			case kContextMenuVerifyBase:
+			case kContextMenuVerifyUpdate:
+			case kContextMenuVerifyDLC:
+			{
+				TitleInfo& titleInfo = event.GetId() == kContextMenuVerifyBase ? gameInfo.GetBase() : event.GetId() == kContextMenuVerifyUpdate ? gameInfo.GetUpdate() : gameInfo.GetAOC().front();
+				wxTitleManagerList::TitleEntry entry = wxTitleManagerList::CreateTitleEntry(titleInfo);
+				(new ChecksumTool(this, entry))->Show();
 				break;
 			}
 			case kContextMenuEditGraphicPacks:
