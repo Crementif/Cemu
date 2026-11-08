@@ -20,6 +20,7 @@ namespace HostModule
 	static std::vector<std::pair<fs::path, PackOrder>> s_graphicPacks;
 	static std::vector<fs::path> s_bundledGraphicPackDirectories;
 	static std::atomic<float> s_windowCropAspectRatio = 0.0f;
+	static std::unordered_map<uint64_t, std::pair<uint16_t, std::string>> s_requiredTitleVersions;
 
 #ifdef ENABLE_VULKAN
 	static std::mutex s_submitMutex;
@@ -184,6 +185,17 @@ namespace HostModule
 	{
 		if (!LaunchSettings::GetLoadFile() && !LaunchSettings::GetLoadTitleID())
 			LaunchSettings::SetLoadTitleID(titleId);
+	}
+
+	void RequireTitleVersion(uint64_t titleId, uint16_t version, const char* requiredBy)
+	{
+		s_requiredTitleVersions.insert_or_assign(titleId, std::pair<uint16_t, std::string>(version, requiredBy));
+	}
+
+	const std::pair<uint16_t, std::string>* GetRequiredTitleVersion(uint64_t titleId)
+	{
+		auto it = s_requiredTitleVersions.find(titleId);
+		return it != s_requiredTitleVersions.end() ? &it->second : nullptr;
 	}
 
 	void CropWindowToAspectRatio(float aspectRatio)

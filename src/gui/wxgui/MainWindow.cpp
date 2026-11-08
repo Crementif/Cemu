@@ -33,6 +33,7 @@
 // External functionality headers
 #include "input/InputManager.h"
 #include "Cafe/TitleList/TitleList.h"
+#include "Cafe/HostModule/HostModule.h"
 #include "Cemu/DiscordPresence/DiscordPresence.h"
 #include "util/ScreenSaver/ScreenSaver.h"
 #include "util/helpers/SystemException.h"
@@ -505,6 +506,17 @@ bool MainWindow::FileLoad(const fs::path launchPath, wxLaunchGameEvent::INITIATE
 			wxString t = _("Unable to launch game because the base files were not found.");
 			wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
 			return false;
+		}
+		if (const auto* required = HostModule::GetRequiredTitleVersion(baseTitleId))
+		{
+			const uint16 version = CafeTitleList::GetGameInfo(baseTitleId).GetVersion();
+			if (version != required->first)
+			{
+				wxMessageDialog dialog(this, formatWxString(_("{} needs version {} of this game, but it's on version {}, so it might not work.\n\nYou can check your game files by right-clicking the game in the game list and picking Verify integrity of game files."), required->second, required->first, version), _("Unsupported game version"), wxYES_NO | wxNO_DEFAULT | wxCENTRE | wxICON_WARNING);
+				dialog.SetYesNoLabels(_("Start anyway"), _("Cancel"));
+				if (dialog.ShowModal() != wxID_YES)
+					return false;
+			}
 		}
 		CafeSystem::PREPARE_STATUS_CODE r = CafeSystem::PrepareForegroundTitle(baseTitleId);
 		if (r == CafeSystem::PREPARE_STATUS_CODE::INVALID_RPX)

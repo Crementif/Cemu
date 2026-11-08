@@ -132,6 +132,10 @@ namespace HostModule
 	// a game passed on the command line still wins
 	void BootTitleOnStart(uint64_t titleId);
 
+	// starting the title on another version asks the user first
+	void RequireTitleVersion(uint64_t titleId, uint16_t version, const char* requiredBy);
+	const std::pair<uint16_t, std::string>* GetRequiredTitleVersion(uint64_t titleId);
+
 	// 0 shows the whole image
 	void CropWindowToAspectRatio(float aspectRatio);
 	float GetWindowCropAspectRatio();
