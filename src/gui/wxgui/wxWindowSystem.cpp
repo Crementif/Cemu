@@ -77,6 +77,15 @@ void WindowSystem::ShowLinkDialog(std::string_view message, std::string_view tit
 	});
 }
 
+void WindowSystem::OpenGraphicPacksWindow()
+{
+	wxTheApp->CallAfter([]()
+	{
+		if (g_mainFrame)
+			g_mainFrame->OpenGraphicPacksWindow();
+	});
+}
+
 WindowSystem::WindowInfo& WindowSystem::GetWindowInfo()
 {
 	return g_window_info;

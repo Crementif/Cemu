@@ -840,6 +840,23 @@ WXLRESULT MainWindow::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lPara
 }
 #endif
 
+void MainWindow::OpenGraphicPacksWindow()
+{
+	if (m_graphic_pack_window)
+	{
+		m_graphic_pack_window->Raise();
+		return;
+	}
+
+	uint64 titleId = 0;
+	if (CafeSystem::IsTitleRunning())
+		titleId = CafeSystem::GetForegroundTitleId();
+
+	m_graphic_pack_window = new GraphicPacksWindow2(this, titleId);
+	m_graphic_pack_window->Bind(wxEVT_CLOSE_WINDOW, &MainWindow::OnGraphicWindowClose, this);
+	m_graphic_pack_window->Show(true);
+}
+
 void MainWindow::OpenSettings()
 {
 	auto& config = GetWxGUIConfig();
@@ -899,17 +916,7 @@ void MainWindow::OnOptionsInput(wxCommandEvent& event)
 	}
 	case MAINFRAME_MENU_ID_OPTIONS_GRAPHIC_PACKS2:
 	{
-		if (m_graphic_pack_window)
-			return;
-
-		uint64 titleId = 0;
-		if (CafeSystem::IsTitleRunning())
-			titleId = CafeSystem::GetForegroundTitleId();
-
-		m_graphic_pack_window = new GraphicPacksWindow2(this, titleId);
-		m_graphic_pack_window->Bind(wxEVT_CLOSE_WINDOW, &MainWindow::OnGraphicWindowClose, this);
-		m_graphic_pack_window->Show(true);
-
+		OpenGraphicPacksWindow();
 		break;
 	}
 

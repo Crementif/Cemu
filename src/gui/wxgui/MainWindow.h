@@ -82,6 +82,7 @@ public:
 	WXLRESULT MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam) override;
 #endif
 	void OpenSettings();
+	void OpenGraphicPacksWindow();
 
 	PadViewFrame* GetPadView() const { return m_padView; }
 

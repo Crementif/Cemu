@@ -86,6 +86,11 @@ namespace HostModule
 		WindowSystem::ShowLinkDialog(message, title, linkLabel, url);
 	}
 
+	void OpenGraphicPacksWindow()
+	{
+		WindowSystem::OpenGraphicPacksWindow();
+	}
+
 	void RegisterHLEFunction(const char* libraryName, const char* functionName, HLEFunction function)
 	{
 		osLib_addFunctionInternal(libraryName, functionName, function);
